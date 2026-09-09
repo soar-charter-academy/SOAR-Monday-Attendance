@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monday Attendance</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="app-header">
+  <div class="title-block">
+    <h1>Monday Attendance</h1>
+    <p id="todayLabel" class="today-label"></p>
+  </div>
+  <div class="header-actions">
+    <button id="uploadRosterBtn" class="btn btn-secondary" type="button">Upload Roster (CSV)</button>
+    <button id="sampleRosterBtn" class="btn btn-secondary" type="button">Load Sample Roster</button>
+    <button id="exportBtn" class="btn btn-secondary" type="button">Export Today's Attendance (CSV)</button>
+    <button id="resetBtn" class="btn btn-danger" type="button">Reset Today</button>
+  </div>
+</header>
+
+<input type="file" id="csvFile" accept=".csv" hidden>
+
+<main>
+  <section class="search-panel" aria-label="Student check-in">
+    <label for="searchInput">Check in a student</label>
+    <div class="search-box">
+      <input id="searchInput" type="text" autocomplete="off"
+             placeholder="Start typing a student's name..." aria-describedby="rosterStatus">
+      <ul id="suggestions" class="suggestions" role="listbox" hidden></ul>
+    </div>
+    <p id="rosterStatus" class="roster-status"></p>
+
+    <details id="walkinDetails" class="walkin">
+      <summary>Student not on the list? Add a walk-in</summary>
+      <form id="walkinForm" class="walkin-form">
+        <input id="walkinName" type="text" placeholder="Student name" required>
+        <select id="walkinGrade" required>
+          <option value="" disabled selected>Grade</option>
+          <option value="TK">TK</option>
+          <option value="K">K</option>
+          <option value="1">1st</option>
+          <option value="2">2nd</option>
+          <option value="3">3rd</option>
+          <option value="4">4th</option>
+          <option value="5">5th</option>
+          <option value="6">6th</option>
+          <option value="7">7th</option>
+          <option value="8">8th</option>
+        </select>
+        <button type="submit" class="btn btn-primary">Check In Walk-in</button>
+      </form>
+    </details>
+  </section>
+
+  <section class="rosters" id="rosters" aria-label="Live room rosters"></section>
+</main>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>
