@@ -1,0 +1,19 @@
+name = "monday-attendance-aeries-proxy"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+# Non-secret config can live here. Secrets (below) must NOT be put in this
+# file — set them with `wrangler secret put <NAME>` instead so they never
+# get committed to git.
+[vars]
+# The origin your app is served from, e.g. GitHub Pages. Locks down who can
+# call this proxy. "*" (the default if you omit this) works for testing but
+# should be narrowed before pulling real student data.
+ALLOWED_ORIGIN = "https://soar-charter-academy.github.io"
+
+# Secrets to set once, after `wrangler login`:
+#   wrangler secret put AERIES_BASE_URL       # e.g. https://yourdistrict.aeries.net
+#   wrangler secret put AERIES_API_KEY        # the AERIES-CERT key from your district
+#   wrangler secret put AERIES_SCHOOL_CODE    # the school code to sync
+#   wrangler secret put APP_SHARED_SECRET     # any random string; enter the same
+#                                              # value in the app's Aeries Settings

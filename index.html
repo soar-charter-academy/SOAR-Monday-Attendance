@@ -13,6 +13,8 @@
     <p id="todayLabel" class="today-label"></p>
   </div>
   <div class="header-actions">
+    <button id="syncAeriesBtn" class="btn btn-secondary" type="button">Sync from Aeries</button>
+    <button id="aeriesSettingsBtn" class="btn btn-secondary" type="button" title="Aeries sync settings">⚙️ Aeries Settings</button>
     <button id="uploadRosterBtn" class="btn btn-secondary" type="button">Upload Roster (CSV)</button>
     <button id="sampleRosterBtn" class="btn btn-secondary" type="button">Load Sample Roster</button>
     <button id="exportBtn" class="btn btn-secondary" type="button">Export Today's Attendance (CSV)</button>
@@ -21,6 +23,40 @@
 </header>
 
 <input type="file" id="csvFile" accept=".csv" hidden>
+
+<dialog id="aeriesSettingsDialog" class="aeries-dialog">
+  <form method="dialog" id="aeriesSettingsForm">
+    <h2>Aeries Live Sync Settings</h2>
+    <p class="dialog-help">
+      Paste the URL of your deployed Aeries sync proxy (see
+      <code>aeries-proxy/README.md</code>) and the shared secret you set up
+      for it. This is saved only in this browser.
+    </p>
+    <label>Sync proxy URL
+      <input id="aeriesWorkerUrl" type="url" placeholder="https://your-worker.workers.dev" required>
+    </label>
+    <label>Shared secret
+      <input id="aeriesSharedSecret" type="password" placeholder="shared secret" autocomplete="off">
+    </label>
+    <label class="checkbox-label">
+      <input id="aeriesAutoRefresh" type="checkbox">
+      Auto-refresh roster while this page is open
+    </label>
+    <label>Refresh every
+      <select id="aeriesRefreshMinutes">
+        <option value="5">5 minutes</option>
+        <option value="15" selected>15 minutes</option>
+        <option value="30">30 minutes</option>
+        <option value="60">60 minutes</option>
+      </select>
+    </label>
+    <p id="aeriesLastSynced" class="dialog-help"></p>
+    <div class="dialog-actions">
+      <button type="button" id="aeriesSettingsCancel" class="btn btn-secondary">Cancel</button>
+      <button type="submit" class="btn btn-primary">Save</button>
+    </div>
+  </form>
+</dialog>
 
 <main>
   <section class="search-panel" aria-label="Student check-in">

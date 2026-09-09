@@ -28,6 +28,29 @@ counts on screen the whole time.
    bar, and the list of students currently assigned there. No refresh
    needed.
 
+## Live sync from Aeries (optional)
+
+If your school uses Aeries as its student information system, the app can
+pull a live roster straight from it instead of a manually uploaded CSV:
+
+- **Sync from Aeries** — pulls the current roster on demand.
+- **⚙️ Aeries Settings** — configure the sync (a proxy URL + shared secret,
+  see below) and optionally turn on **auto-refresh** to re-pull
+  periodically (every 5/15/30/60 min) while the check-in laptop's browser
+  tab stays open.
+
+This app is a static site with nowhere safe to hold an Aeries API key
+directly, so live sync needs one small piece of separate infrastructure: a
+tiny Cloudflare Worker that holds the real Aeries credentials and proxies
+just the roster request. See [`aeries-proxy/README.md`](aeries-proxy/README.md)
+for what you need (an Aeries API key from your district) and how to deploy
+it — it takes a few minutes and Cloudflare's free tier is enough.
+
+A failed sync (Aeries or the proxy is unreachable) shows an error and
+leaves the current roster and today's check-ins untouched — it never wipes
+data on error. CSV upload and the sample roster remain available as a
+fallback / for schools not using Aeries.
+
 ## Loading your student roster
 
 The app needs a list of students and their grades before you can search.
@@ -82,7 +105,10 @@ This is a plain static site — no build step, no server required.
 
 - All roster and attendance data is stored **only in the browser's
   `localStorage`** on the device running the app — nothing is sent to a
-  server. That means:
+  server, **unless you set up Aeries live sync** (above), in which case the
+  roster (names + grades) is fetched from your district's Aeries system via
+  the small proxy described in `aeries-proxy/`. Attendance/check-in data is
+  never sent anywhere either way. That means:
   - It's private to that one device/browser.
   - Clearing browser data/history will erase the roster and any unexported
     attendance for that day.
@@ -98,9 +124,14 @@ This is a plain static site — no build step, no server required.
 ## Project structure
 
 ```
-index.html         Page markup (search box, walk-in form, room roster grid)
+index.html         Page markup (search box, walk-in form, room roster grid,
+                    Aeries settings dialog)
 style.css           Styling
 app.js              All app logic: roster import, search, room assignment,
-                    live rendering, CSV export, localStorage persistence
+                    live rendering, CSV export, localStorage persistence,
+                    Aeries sync + auto-refresh
 sample-roster.csv   Template / demo roster (2-column CSV: Name, Grade)
+aeries-proxy/       Optional Cloudflare Worker that proxies Aeries API
+                    requests so the app never holds the Aeries API key
+                    directly — see aeries-proxy/README.md
 ```

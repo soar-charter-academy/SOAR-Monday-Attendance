@@ -71,6 +71,8 @@
 
   const STORAGE_ROSTER_KEY = "mondayAttendance.roster.v1";
   const STORAGE_CHECKIN_PREFIX = "mondayAttendance.checkins.v1.";
+  const STORAGE_AERIES_CONFIG_KEY = "mondayAttendance.aeriesConfig.v1";
+  const AERIES_SYNC_TIMEOUT_MS = 15000;
 
   // ---------------------------------------------------------------------
   // State
@@ -79,6 +81,8 @@
   let roster = loadRoster(); // [{ id, name, grade }]
   let checkins = loadCheckins(); // [{ id, studentId, name, grade, roomId, time, walkin }]
   let activeSuggestionIndex = -1;
+  let aeriesConfig = loadAeriesConfig(); // { workerUrl, sharedSecret, autoRefreshEnabled, autoRefreshMinutes, lastSyncedAt }
+  let aeriesTimer = null;
 
   // ---------------------------------------------------------------------
   // DOM refs
@@ -100,6 +104,16 @@
     walkinGrade: document.getElementById("walkinGrade"),
     walkinDetails: document.getElementById("walkinDetails"),
     toast: document.getElementById("toast"),
+    syncAeriesBtn: document.getElementById("syncAeriesBtn"),
+    aeriesSettingsBtn: document.getElementById("aeriesSettingsBtn"),
+    aeriesSettingsDialog: document.getElementById("aeriesSettingsDialog"),
+    aeriesSettingsForm: document.getElementById("aeriesSettingsForm"),
+    aeriesSettingsCancel: document.getElementById("aeriesSettingsCancel"),
+    aeriesWorkerUrl: document.getElementById("aeriesWorkerUrl"),
+    aeriesSharedSecret: document.getElementById("aeriesSharedSecret"),
+    aeriesAutoRefresh: document.getElementById("aeriesAutoRefresh"),
+    aeriesRefreshMinutes: document.getElementById("aeriesRefreshMinutes"),
+    aeriesLastSynced: document.getElementById("aeriesLastSynced"),
   };
 
   // ---------------------------------------------------------------------
@@ -147,6 +161,27 @@
     localStorage.setItem(checkinStorageKey(), JSON.stringify(checkins));
   }
 
+  function loadAeriesConfig() {
+    const defaults = {
+      workerUrl: "",
+      sharedSecret: "",
+      autoRefreshEnabled: false,
+      autoRefreshMinutes: 15,
+      lastSyncedAt: null,
+    };
+    try {
+      const raw = localStorage.getItem(STORAGE_AERIES_CONFIG_KEY);
+      return raw ? Object.assign(defaults, JSON.parse(raw)) : defaults;
+    } catch (e) {
+      console.error("Failed to load Aeries sync settings", e);
+      return defaults;
+    }
+  }
+
+  function saveAeriesConfig() {
+    localStorage.setItem(STORAGE_AERIES_CONFIG_KEY, JSON.stringify(aeriesConfig));
+  }
+
   function normalizeGrade(raw) {
     if (raw == null) return "";
     const g = String(raw).trim().toUpperCase();
@@ -161,9 +196,14 @@
   // Roster (student list) management
   // ---------------------------------------------------------------------
 
-  function setRoster(students) {
+  // `opts.stableIds` is used for Aeries syncs: Aeries hands back a durable
+  // per-student id, and reusing it (instead of regenerating index+name-slug
+  // ids) means a student who's already checked in today stays matched to
+  // their check-in across roster re-syncs, even if the Aeries order changes.
+  function setRoster(students, opts) {
+    opts = opts || {};
     roster = students.map((s, i) => ({
-      id: "s" + i + "-" + slug(s.name),
+      id: opts.stableIds ? "aeries-" + String(s.id) : "s" + i + "-" + slug(s.name),
       name: s.name,
       grade: normalizeGrade(s.grade),
     }));
@@ -193,6 +233,78 @@
       if (name) students.push({ name, grade });
     }
     return students;
+  }
+
+  // ---------------------------------------------------------------------
+  // Aeries live sync
+  // ---------------------------------------------------------------------
+  //
+  // Talks to the small proxy in aeries-proxy/ (see its README), which holds
+  // the real Aeries credentials server-side. This app only ever calls that
+  // proxy's GET /roster endpoint and expects { roster: [{id,name,grade}] }.
+  // A failed sync leaves the current roster and today's check-ins untouched
+  // — it never wipes data on error.
+
+  async function syncFromAeries(opts) {
+    opts = opts || {};
+    if (!aeriesConfig.workerUrl) {
+      if (!opts.silent) showToast("Set up Aeries sync in ⚙️ Aeries Settings first.");
+      return;
+    }
+
+    const endpoint = aeriesConfig.workerUrl.replace(/\/$/, "") + "/roster";
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), AERIES_SYNC_TIMEOUT_MS);
+
+    try {
+      const res = await fetch(endpoint, {
+        headers: aeriesConfig.sharedSecret ? { "X-App-Secret": aeriesConfig.sharedSecret } : {},
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        let detail = "";
+        try {
+          detail = (await res.json()).error || "";
+        } catch (e) {
+          // response wasn't JSON; ignore and use the status alone
+        }
+        throw new Error("Sync proxy returned " + res.status + (detail ? " (" + detail + ")" : ""));
+      }
+      const data = await res.json();
+      if (!data || !Array.isArray(data.roster)) {
+        throw new Error("Unexpected response from sync proxy");
+      }
+
+      setRoster(data.roster, { stableIds: true });
+      aeriesConfig.lastSyncedAt = new Date().toISOString();
+      saveAeriesConfig();
+      renderAeriesStatus();
+      if (!opts.silent) showToast("✅ Synced " + data.roster.length + " students from Aeries.");
+    } catch (err) {
+      const message = err.name === "AbortError" ? "Sync proxy timed out" : err.message;
+      console.error("Aeries sync failed", err);
+      if (!opts.silent) showToast("⚠️ Aeries sync failed: " + message);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  function scheduleAeriesAutoRefresh() {
+    if (aeriesTimer) {
+      clearInterval(aeriesTimer);
+      aeriesTimer = null;
+    }
+    if (aeriesConfig.autoRefreshEnabled && aeriesConfig.workerUrl) {
+      const ms = Math.max(1, Number(aeriesConfig.autoRefreshMinutes) || 15) * 60 * 1000;
+      aeriesTimer = setInterval(() => syncFromAeries({ silent: true }), ms);
+    }
+  }
+
+  function renderAeriesStatus() {
+    if (!el.aeriesLastSynced) return;
+    el.aeriesLastSynced.textContent = aeriesConfig.lastSyncedAt
+      ? "Last synced: " + new Date(aeriesConfig.lastSyncedAt).toLocaleString()
+      : "Never synced yet.";
   }
 
   // ---------------------------------------------------------------------
@@ -453,6 +565,30 @@
     }
   });
 
+  el.syncAeriesBtn.addEventListener("click", () => syncFromAeries());
+
+  el.aeriesSettingsBtn.addEventListener("click", () => {
+    el.aeriesWorkerUrl.value = aeriesConfig.workerUrl || "";
+    el.aeriesSharedSecret.value = aeriesConfig.sharedSecret || "";
+    el.aeriesAutoRefresh.checked = !!aeriesConfig.autoRefreshEnabled;
+    el.aeriesRefreshMinutes.value = String(aeriesConfig.autoRefreshMinutes || 15);
+    renderAeriesStatus();
+    el.aeriesSettingsDialog.showModal();
+  });
+
+  el.aeriesSettingsCancel.addEventListener("click", () => el.aeriesSettingsDialog.close());
+
+  el.aeriesSettingsForm.addEventListener("submit", () => {
+    aeriesConfig.workerUrl = el.aeriesWorkerUrl.value.trim();
+    aeriesConfig.sharedSecret = el.aeriesSharedSecret.value;
+    aeriesConfig.autoRefreshEnabled = el.aeriesAutoRefresh.checked;
+    aeriesConfig.autoRefreshMinutes = Number(el.aeriesRefreshMinutes.value);
+    saveAeriesConfig();
+    scheduleAeriesAutoRefresh();
+    showToast("Aeries sync settings saved.");
+    if (aeriesConfig.workerUrl) syncFromAeries();
+  });
+
   el.uploadRosterBtn.addEventListener("click", () => el.csvFile.click());
 
   el.csvFile.addEventListener("change", () => {
@@ -513,4 +649,9 @@
   // ---------------------------------------------------------------------
 
   renderAll();
+  renderAeriesStatus();
+  scheduleAeriesAutoRefresh();
+  if (aeriesConfig.autoRefreshEnabled && aeriesConfig.workerUrl) {
+    syncFromAeries({ silent: true });
+  }
 })();
