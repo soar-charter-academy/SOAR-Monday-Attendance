@@ -9,107 +9,131 @@
   from a previous Monday picks up updates on its own -- see checkForUpdate()
   in app.js. Nothing else needs to change when you bump it.
 -->
-<meta name="app-version" content="3">
+<meta name="app-version" content="5">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>Monday Attendance</title>
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 <div id="dbBanner" class="db-banner" hidden></div>
 
-<header class="app-header">
-  <div class="title-block">
+<div id="authScreen" class="auth-screen" hidden>
+  <div class="auth-card">
     <h1>Monday Attendance</h1>
-    <p id="todayLabel" class="today-label"></p>
-  </div>
-  <div class="header-actions">
-    <button id="syncAeriesBtn" class="btn btn-secondary" type="button">Sync from Aeries</button>
-    <button id="aeriesSettingsBtn" class="btn btn-secondary" type="button" title="Aeries sync settings">⚙️ Aeries Settings</button>
-    <button id="uploadRosterBtn" class="btn btn-secondary" type="button">Upload Roster (CSV)</button>
-    <button id="sampleRosterBtn" class="btn btn-secondary" type="button">Load Sample Roster</button>
-    <button id="exportBtn" class="btn btn-secondary" type="button">Export Today's Attendance (CSV)</button>
-    <button id="resetBtn" class="btn btn-danger" type="button">Reset Today</button>
-  </div>
-</header>
-
-<input type="file" id="csvFile" accept=".csv" hidden>
-
-<dialog id="aeriesSettingsDialog" class="aeries-dialog">
-  <form method="dialog" id="aeriesSettingsForm">
-    <h2>Aeries Live Sync Settings</h2>
-    <p class="dialog-help">
-      Paste the URL of your deployed Aeries sync proxy (see
-      <code>aeries-proxy/README.md</code>) and the shared secret you set up
-      for it. These are saved only in this browser — every device needs its
-      own settings here, but a sync from any one of them updates the shared
-      roster (in Supabase) for everyone.
+    <p class="auth-subtitle">Staff sign-in required</p>
+    <button id="googleSignInBtn" class="btn btn-google auth-submit" type="button">
+      <svg class="google-icon" viewBox="0 0 18 18" aria-hidden="true" focusable="false">
+        <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z"/>
+        <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.83.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.95v2.33A9 9 0 0 0 9 18z"/>
+        <path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.17.28-1.7V4.97H.95A9 9 0 0 0 0 9c0 1.45.35 2.83.95 4.03l3-2.33z"/>
+        <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .95 4.97l3 2.33C4.66 5.17 6.65 3.58 9 3.58z"/>
+      </svg>
+      Sign in with Google
+    </button>
+    <p id="authError" class="auth-error" hidden></p>
+    <p class="auth-help">
+      Use your @soarcharteracademy.org Google account — other accounts
+      can't access this app.
     </p>
-    <label>Sync proxy URL
-      <input id="aeriesWorkerUrl" type="url" placeholder="https://your-worker.workers.dev" required>
-    </label>
-    <label>Shared secret
-      <input id="aeriesSharedSecret" type="password" placeholder="shared secret" autocomplete="off">
-    </label>
-    <label class="checkbox-label">
-      <input id="aeriesAutoRefresh" type="checkbox">
-      Auto-refresh roster while this page is open
-    </label>
-    <label>Refresh every
-      <select id="aeriesRefreshMinutes">
-        <option value="5">5 minutes</option>
-        <option value="15" selected>15 minutes</option>
-        <option value="30">30 minutes</option>
-        <option value="60">60 minutes</option>
-      </select>
-    </label>
-    <p id="aeriesLastSynced" class="dialog-help"></p>
-    <div class="dialog-actions">
-      <button type="button" id="aeriesSettingsCancel" class="btn btn-secondary">Cancel</button>
-      <button type="submit" class="btn btn-primary">Save</button>
-    </div>
-  </form>
-</dialog>
+  </div>
+</div>
 
-<main>
-  <section class="search-panel" aria-label="Student check-in">
-    <label for="searchInput">Check in a student</label>
-    <div class="search-box">
-      <input id="searchInput" type="text" autocomplete="off"
-             placeholder="Start typing a student's name..." aria-describedby="rosterStatus">
-      <ul id="suggestions" class="suggestions" role="listbox" hidden></ul>
+<div id="appShell" hidden>
+  <header class="app-header">
+    <div class="title-block">
+      <h1>Monday Attendance</h1>
+      <p id="todayLabel" class="today-label"></p>
     </div>
-    <p id="rosterStatus" class="roster-status"></p>
+    <div class="header-actions">
+      <button id="syncAeriesBtn" class="btn btn-secondary" type="button">Sync from Aeries</button>
+      <button id="aeriesSettingsBtn" class="btn btn-secondary" type="button" title="Aeries sync settings">⚙️ Aeries Settings</button>
+      <button id="uploadRosterBtn" class="btn btn-secondary" type="button">Upload Roster (CSV)</button>
+      <button id="sampleRosterBtn" class="btn btn-secondary" type="button">Load Sample Roster</button>
+      <button id="exportBtn" class="btn btn-secondary" type="button">Export Today's Attendance (CSV)</button>
+      <button id="resetBtn" class="btn btn-danger" type="button">Reset Today</button>
+      <button id="signOutBtn" class="btn btn-secondary" type="button" title="Sign out">Sign Out</button>
+    </div>
+  </header>
 
-    <details id="walkinDetails" class="walkin">
-      <summary>Student not on the list? Add a walk-in</summary>
-      <form id="walkinForm" class="walkin-form">
-        <input id="walkinName" type="text" placeholder="Student name" required>
-        <select id="walkinGrade" required>
-          <option value="" disabled selected>Grade</option>
-          <option value="TK">TK</option>
-          <option value="K">K</option>
-          <option value="1">1st</option>
-          <option value="2">2nd</option>
-          <option value="3">3rd</option>
-          <option value="4">4th</option>
-          <option value="5">5th</option>
-          <option value="6">6th</option>
-          <option value="7">7th</option>
-          <option value="8">8th</option>
+  <input type="file" id="csvFile" accept=".csv" hidden>
+
+  <dialog id="aeriesSettingsDialog" class="aeries-dialog">
+    <form method="dialog" id="aeriesSettingsForm">
+      <h2>Aeries Live Sync Settings</h2>
+      <p class="dialog-help">
+        Paste the URL of your deployed Aeries sync proxy (see
+        <code>aeries-proxy/README.md</code>) and the shared secret you set up
+        for it. These are saved only in this browser — every device needs its
+        own settings here, but a sync from any one of them updates the shared
+        roster (in Supabase) for everyone.
+      </p>
+      <label>Sync proxy URL
+        <input id="aeriesWorkerUrl" type="url" placeholder="https://your-worker.workers.dev" required>
+      </label>
+      <label>Shared secret
+        <input id="aeriesSharedSecret" type="password" placeholder="shared secret" autocomplete="off">
+      </label>
+      <label class="checkbox-label">
+        <input id="aeriesAutoRefresh" type="checkbox">
+        Auto-refresh roster while this page is open
+      </label>
+      <label>Refresh every
+        <select id="aeriesRefreshMinutes">
+          <option value="5">5 minutes</option>
+          <option value="15" selected>15 minutes</option>
+          <option value="30">30 minutes</option>
+          <option value="60">60 minutes</option>
         </select>
-        <button type="submit" class="btn btn-primary">Check In Walk-in</button>
-      </form>
-    </details>
-  </section>
+      </label>
+      <p id="aeriesLastSynced" class="dialog-help"></p>
+      <div class="dialog-actions">
+        <button type="button" id="aeriesSettingsCancel" class="btn btn-secondary">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </dialog>
 
-  <section class="rosters" id="rosters" aria-label="Live room rosters"></section>
-</main>
+  <main>
+    <section class="search-panel" aria-label="Student check-in">
+      <label for="searchInput">Check in a student</label>
+      <div class="search-box">
+        <input id="searchInput" type="text" autocomplete="off"
+               placeholder="Start typing a student's name..." aria-describedby="rosterStatus">
+        <ul id="suggestions" class="suggestions" role="listbox" hidden></ul>
+      </div>
+      <p id="rosterStatus" class="roster-status"></p>
+
+      <details id="walkinDetails" class="walkin">
+        <summary>Student not on the list? Add a walk-in</summary>
+        <form id="walkinForm" class="walkin-form">
+          <input id="walkinName" type="text" placeholder="Student name" required>
+          <select id="walkinGrade" required>
+            <option value="" disabled selected>Grade</option>
+            <option value="TK">TK</option>
+            <option value="K">K</option>
+            <option value="1">1st</option>
+            <option value="2">2nd</option>
+            <option value="3">3rd</option>
+            <option value="4">4th</option>
+            <option value="5">5th</option>
+            <option value="6">6th</option>
+            <option value="7">7th</option>
+            <option value="8">8th</option>
+          </select>
+          <button type="submit" class="btn btn-primary">Check In Walk-in</button>
+        </form>
+      </details>
+    </section>
+
+    <section class="rosters" id="rosters" aria-label="Live room rosters"></section>
+  </main>
+</div>
 
 <div id="toast" class="toast" hidden></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="config.js?v=3"></script>
-<script src="app.js?v=3"></script>
+<script src="config.js?v=5"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>

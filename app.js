@@ -70,6 +70,15 @@
 
   const NIL_UUID = "00000000-0000-0000-0000-000000000000";
 
+  // Google sign-in is restricted to this domain -- both as a hint to
+  // Google's account chooser (see the Google button handler) and as the
+  // actual check this app runs after sign-in (see the auth section below).
+  // The real enforcement is server-side, in the migration's RLS policies;
+  // this app-side check exists only to catch a wrong-domain sign-in early
+  // and explain it, rather than leaving someone "signed in" but unable to
+  // do anything.
+  const ORG_EMAIL_DOMAIN = "soarcharteracademy.org";
+
   // Per-room teacher names live in Supabase (room_teachers) like everything
   // else, so they show up live on every device -- saves are debounced (see
   // saveTeacherName) rather than firing on every keystroke.
@@ -77,10 +86,11 @@
 
   // Aeries sync settings (proxy URL + shared secret) are per-browser
   // localStorage, unlike the roster/check-ins/teacher names above: the
-  // shared secret is a credential, and students/checkins/room_teachers are
-  // readable by anyone holding the app's anon key (see the migration's RLS
-  // policies) -- storing it in Supabase would hand it to every viewer. A
-  // sync triggered from any one configured device still updates the shared
+  // shared secret is a credential, and students/checkins/room_teachers now
+  // require a signed-in session to read at all (see the migration's RLS
+  // policies) -- but storing it in Supabase would still hand it to every
+  // *signed-in* viewer, not just the device(s) that need it. A sync
+  // triggered from any one configured device still updates the shared
   // Supabase roster for everyone, same as a CSV upload would.
   const STORAGE_AERIES_CONFIG_KEY = "mondayAttendance.aeriesConfig.v1";
   const AERIES_SYNC_TIMEOUT_MS = 15000;
@@ -143,6 +153,11 @@
     aeriesAutoRefresh: document.getElementById("aeriesAutoRefresh"),
     aeriesRefreshMinutes: document.getElementById("aeriesRefreshMinutes"),
     aeriesLastSynced: document.getElementById("aeriesLastSynced"),
+    authScreen: document.getElementById("authScreen"),
+    googleSignInBtn: document.getElementById("googleSignInBtn"),
+    authError: document.getElementById("authError"),
+    appShell: document.getElementById("appShell"),
+    signOutBtn: document.getElementById("signOutBtn"),
   };
 
   // ---------------------------------------------------------------------
@@ -1148,11 +1163,40 @@
   });
 
   // ---------------------------------------------------------------------
-  // Init
+  // Auth
   // ---------------------------------------------------------------------
+  //
+  // Every table's RLS policies require a signed-in Supabase Auth session
+  // (see the migration) -- the anon key alone no longer grants any access,
+  // even though it's still needed client-side to initialize the Supabase
+  // client and attempt a sign-in. Staff accounts are created by an admin in
+  // the Supabase dashboard (Authentication -> Users); there's no
+  // self-serve sign-up screen.
 
-  async function init() {
-    updateDbBanner();
+  let appStarted = false;
+  // Set right before we sign a wrong-domain account back out, so the
+  // SIGNED_OUT event that sign-out itself triggers doesn't immediately
+  // clear the explanation we just showed (see onAuthStateChange below).
+  let suppressNextAuthScreenReset = false;
+
+  function showAuthScreen(message) {
+    el.appShell.hidden = true;
+    el.authScreen.hidden = false;
+    el.authError.textContent = message || "";
+    el.authError.hidden = !message;
+  }
+
+  function showApp() {
+    el.authScreen.hidden = true;
+    el.appShell.hidden = false;
+  }
+
+  // Idempotent: onAuthStateChange can fire more than once with a session
+  // present (e.g. a token refresh), so this only actually loads/subscribes
+  // the first time.
+  async function startApp() {
+    if (appStarted) return;
+    appStarted = true;
     await Promise.all([loadRoster(), loadCheckins(), loadTeachers()]);
     renderAll();
     subscribeRealtime();
@@ -1161,6 +1205,92 @@
     if (aeriesConfig.autoRefreshEnabled && aeriesConfig.workerUrl) {
       syncFromAeries({ silent: true });
     }
+  }
+
+  // Tears down everything startApp set up, so a sign-out (or the initial
+  // no-session state) doesn't leave stale realtime subscriptions or
+  // another account's data sitting in memory for the next sign-in.
+  async function stopApp() {
+    appStarted = false;
+    if (aeriesTimer) {
+      clearInterval(aeriesTimer);
+      aeriesTimer = null;
+    }
+    if (db) await db.removeAllChannels();
+    roster = [];
+    checkins = [];
+    clearSearch();
+  }
+
+  el.googleSignInBtn.addEventListener("click", async () => {
+    if (!db) {
+      showAuthScreen("Connect Supabase first — see config.js.");
+      return;
+    }
+    el.authError.hidden = true;
+    const { error } = await db.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        // Back to this same page once Google's consent screen finishes.
+        redirectTo: window.location.origin + window.location.pathname,
+        // Hints Google's account picker toward the org's Workspace domain
+        // -- a UX nicety, not the real restriction (see the domain check
+        // in onAuthStateChange below, and the RLS policies, which are).
+        queryParams: { hd: ORG_EMAIL_DOMAIN },
+      },
+    });
+    if (error) {
+      showAuthScreen(error.message);
+    }
+    // No further action here -- signInWithOAuth navigates the browser to
+    // Google; onAuthStateChange (below) picks up the session on return.
+  });
+
+  el.signOutBtn.addEventListener("click", async () => {
+    if (!db) return;
+    await stopApp();
+    await db.auth.signOut();
+    // onAuthStateChange (below) shows the auth screen again.
+  });
+
+  // ---------------------------------------------------------------------
+  // Init
+  // ---------------------------------------------------------------------
+
+  function init() {
+    updateDbBanner();
+    if (!db) return; // the banner already explains what to do
+
+    // Fires immediately with whatever session already exists (or none),
+    // then again on every sign-in/sign-out/token-refresh -- this one
+    // listener covers the initial page load as well as later auth changes.
+    db.auth.onAuthStateChange((event, session) => {
+      if (session) {
+        const email = (session.user && session.user.email) || "";
+        if (!email.toLowerCase().endsWith("@" + ORG_EMAIL_DOMAIN)) {
+          // The RLS policies would block all data access for this account
+          // anyway (they check the same domain -- see the migration), but
+          // signing them back out immediately with a clear explanation is
+          // much better than leaving them "signed in" to a broken, empty
+          // app that silently fails every request.
+          suppressNextAuthScreenReset = true;
+          showAuthScreen("Only @" + ORG_EMAIL_DOMAIN + " accounts can sign in to this app.");
+          stopApp();
+          db.auth.signOut();
+          return;
+        }
+        showApp();
+        startApp();
+      } else if (suppressNextAuthScreenReset) {
+        // This is that signOut() completing -- the message above is still
+        // on screen; don't clear it.
+        suppressNextAuthScreenReset = false;
+        stopApp();
+      } else {
+        showAuthScreen();
+        stopApp();
+      }
+    });
   }
 
   init();

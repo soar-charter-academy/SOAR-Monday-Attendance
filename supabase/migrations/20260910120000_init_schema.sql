@@ -73,10 +73,32 @@ alter table students enable row level security;
 alter table checkins enable row level security;
 alter table room_teachers enable row level security;
 
--- MVP policy: anyone holding the app's anon key (i.e. anyone who can load the
--- page) can read and write. This is appropriate for a trusted internal tool
--- with no login. Tighten with Supabase Auth + narrower policies if this ever
--- needs to be internet-public or handle sensitive data.
+-- The real enforcement of "staff only, and only our school's Google
+-- accounts" lives here, not in the app: app.js's own post-sign-in domain
+-- check is only a UX nicety (an early, clear error instead of a silently
+-- broken app) and is trivially bypassable by anyone calling the Supabase
+-- API directly -- this function, used in every policy below, is not.
+create or replace function public.is_org_user()
+returns boolean
+language sql
+stable
+as $$
+  select coalesce(lower(auth.jwt() ->> 'email') like '%@soarcharteracademy.org', false);
+$$;
+
+-- Any signed-in @soarcharteracademy.org Google account (see the app's
+-- login screen) can read and write -- there's no per-role distinction
+-- among staff, and no other domain, and no email/password accounts.
+-- auth.role() = 'authenticated' alone is false for the anon key alone (an
+-- unauthenticated request), and is_org_user() further narrows that to the
+-- one allowed domain -- holding the anon key, which is not a secret and
+-- ships in the page's source, no longer grants any access by itself.
+--
+-- These *replace* an earlier "anyone holding the anon key" policy set
+-- (named "public ..." below) that predates the login screen -- those are
+-- explicitly dropped, not just superseded, so a project that already
+-- applied them doesn't keep the old wide-open policies sitting alongside
+-- the new ones.
 --
 -- Unlike "create table"/"create index", Postgres has no "create policy if
 -- not exists" -- re-running this file (e.g. after a new table/policy is
@@ -84,33 +106,44 @@ alter table room_teachers enable row level security;
 -- is dropped first: safe to run repeatedly, and re-creating with the exact
 -- same definition is a no-op in effect.
 drop policy if exists "public read students" on students;
-create policy "public read students" on students for select using (true);
+drop policy if exists "authenticated read students" on students;
+create policy "authenticated read students" on students for select using (auth.role() = 'authenticated' and public.is_org_user());
 drop policy if exists "public insert students" on students;
-create policy "public insert students" on students for insert with check (true);
+drop policy if exists "authenticated insert students" on students;
+create policy "authenticated insert students" on students for insert with check (auth.role() = 'authenticated' and public.is_org_user());
 drop policy if exists "public update students" on students;
-create policy "public update students" on students for update using (true);
+drop policy if exists "authenticated update students" on students;
+create policy "authenticated update students" on students for update using (auth.role() = 'authenticated' and public.is_org_user());
 drop policy if exists "public delete students" on students;
-create policy "public delete students" on students for delete using (true);
+drop policy if exists "authenticated delete students" on students;
+create policy "authenticated delete students" on students for delete using (auth.role() = 'authenticated' and public.is_org_user());
 
 drop policy if exists "public read checkins" on checkins;
-create policy "public read checkins" on checkins for select using (true);
+drop policy if exists "authenticated read checkins" on checkins;
+create policy "authenticated read checkins" on checkins for select using (auth.role() = 'authenticated' and public.is_org_user());
 drop policy if exists "public insert checkins" on checkins;
-create policy "public insert checkins" on checkins for insert with check (true);
+drop policy if exists "authenticated insert checkins" on checkins;
+create policy "authenticated insert checkins" on checkins for insert with check (auth.role() = 'authenticated' and public.is_org_user());
 -- Update is needed for drag-and-drop between rooms (moveCheckin in app.js
 -- only ever changes room_id on an existing check-in row).
 drop policy if exists "public update checkins" on checkins;
-create policy "public update checkins" on checkins for update using (true) with check (true);
+drop policy if exists "authenticated update checkins" on checkins;
+create policy "authenticated update checkins" on checkins for update using (auth.role() = 'authenticated' and public.is_org_user()) with check (auth.role() = 'authenticated' and public.is_org_user());
 drop policy if exists "public delete checkins" on checkins;
-create policy "public delete checkins" on checkins for delete using (true);
+drop policy if exists "authenticated delete checkins" on checkins;
+create policy "authenticated delete checkins" on checkins for delete using (auth.role() = 'authenticated' and public.is_org_user());
 
 -- No delete policy: a cleared teacher name is saved as an empty string
 -- (see saveTeacherName in app.js), never removed.
 drop policy if exists "public read room_teachers" on room_teachers;
-create policy "public read room_teachers" on room_teachers for select using (true);
+drop policy if exists "authenticated read room_teachers" on room_teachers;
+create policy "authenticated read room_teachers" on room_teachers for select using (auth.role() = 'authenticated' and public.is_org_user());
 drop policy if exists "public insert room_teachers" on room_teachers;
-create policy "public insert room_teachers" on room_teachers for insert with check (true);
+drop policy if exists "authenticated insert room_teachers" on room_teachers;
+create policy "authenticated insert room_teachers" on room_teachers for insert with check (auth.role() = 'authenticated' and public.is_org_user());
 drop policy if exists "public update room_teachers" on room_teachers;
-create policy "public update room_teachers" on room_teachers for update using (true) with check (true);
+drop policy if exists "authenticated update room_teachers" on room_teachers;
+create policy "authenticated update room_teachers" on room_teachers for update using (auth.role() = 'authenticated' and public.is_org_user()) with check (auth.role() = 'authenticated' and public.is_org_user());
 
 -- Realtime: broadcast changes on these tables so every open browser tab
 -- updates live as check-ins happen anywhere. Postgres has no "add table if

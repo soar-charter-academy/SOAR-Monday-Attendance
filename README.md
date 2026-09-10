@@ -7,11 +7,13 @@ counts, synced across every device running the app.
 
 ## How it works
 
-1. **Search** — start typing a student's name in the search box. Matching
+1. **Sign in** — with a `@soarcharteracademy.org` Google account (see
+   **Staff sign-in** below). Nothing else on the page works until you do.
+2. **Search** — start typing a student's name in the search box. Matching
    students appear in a dropdown as you type.
-2. **Click** — click the student (or press Enter to pick the highlighted
+3. **Click** — click the student (or press Enter to pick the highlighted
    match). They're instantly checked in and assigned to a room.
-3. **Room assignment is automatic**, based on grade:
+4. **Room assignment is automatic**, based on grade:
 
    | Grade(s)     | Primary room     | Overflows to      |
    |--------------|-------------------|--------------------|
@@ -23,12 +25,12 @@ counts, synced across every device running the app.
    primary room is full. If every matching room is full, the app tells you
    so on screen instead of over-filling a room — check with a supervisor for
    those students.
-4. **Rosters update live, everywhere** — as students are checked in from any
+5. **Rosters update live, everywhere** — as students are checked in from any
    device, every other open browser tab/laptop updates immediately with the
    current count (e.g. "7 / 10"), a progress bar, and the list of students
    assigned there. Multiple check-in tables can run at once and stay in
    sync.
-5. **Made a wrong call on a room?** Drag a student's row from one room card
+6. **Made a wrong call on a room?** Drag a student's row from one room card
    onto another to move them there — it still respects that room's
    capacity, so you can't drag someone into a full room.
 
@@ -55,7 +57,8 @@ The roster and today's check-ins are stored in a Supabase project (Postgres
    Supabase dashboard's SQL Editor.
 
 That's it — reload the app and the banner at the top (which shows if
-Supabase isn't connected yet) should disappear.
+Supabase isn't connected yet) should disappear. You'll land on a sign-in
+screen next — see **Staff sign-in** below to create your first account.
 
 If you already ran an earlier version of this migration by hand (e.g. via
 the SQL Editor), the `create table if not exists` statements will just
@@ -70,10 +73,65 @@ The schema is three tables:
   tied to a room and timestamp.
 - `room_teachers` — one row per room, holding whoever's running it today.
 
-Both have Row Level Security enabled with an open "anyone with the anon key
-can read/write" policy — appropriate for a trusted internal tool with no
-login. If this ever needs real user accounts or tighter access control, add
-Supabase Auth and narrow the policies in a follow-up migration.
+All three have Row Level Security enabled, requiring a signed-in Supabase
+Auth session for every read and write — see **Staff sign-in** below.
+
+## Staff sign-in
+
+The app requires signing in with a **Google account on the
+`@soarcharteracademy.org` domain** before showing any student data —
+staff use their existing school Google account; there's no separate
+password to create or manage, and no other domain can sign in.
+
+**One-time setup, in this order:**
+
+1. **Google Cloud Console** → create (or reuse) a project → **APIs &
+   Services → OAuth consent screen**:
+   - If `soarcharteracademy.org` is a Google Workspace domain, set
+     **User Type** to **Internal**. This is the strongest option — Google
+     itself refuses the sign-in for any account outside the Workspace, so
+     a wrong-domain account never even reaches this app.
+   - Otherwise, **External** still works — this app's own checks (below)
+     enforce the domain instead of Google doing it for you at the account
+     picker.
+2. Still in Google Cloud Console: **Credentials → Create Credentials →
+   OAuth client ID → Web application**. For **Authorized redirect URIs**,
+   use the callback URL Supabase shows you in the next step.
+3. **Supabase dashboard → Authentication → Providers → Google** — enable
+   it, paste the Client ID + Client Secret from step 2, save. Copy the
+   callback URL shown here into step 2 if you haven't already.
+4. **Supabase dashboard → Authentication → URL Configuration → Redirect
+   URLs** — add every URL this app is actually served from (its GitHub
+   Pages URL, plus e.g. `http://localhost:8000` if you test locally).
+   Google OAuth will refuse to redirect back to a URL that isn't listed
+   here.
+
+That's it — no accounts to create per staff member. Anyone signing in
+with a `@soarcharteracademy.org` Google account gets in immediately, with
+the same access as everyone else (there's no separate admin/staff role).
+Signing out (the **Sign Out** button in the header) clears that device's
+session; signing back in picks up right where the shared
+roster/check-ins/teacher names already are, since none of that is tied to
+who's signed in.
+
+**Where the domain restriction is actually enforced:** every table's RLS
+policy checks a `is_org_user()` database function that reads the signed-in
+user's email off their Supabase session and requires it to end in
+`@soarcharteracademy.org` — this is checked on every single request, at
+the database, which is what actually protects the data regardless of what
+Google or the app's UI do. The app also does its own check right after
+sign-in (immediately signing out and showing an error for a wrong-domain
+account) purely so that mistake produces a clear message instead of a
+confusingly broken, empty app — that check alone would **not** stop
+someone from reading data by calling the Supabase API directly, only the
+database-level policy does that.
+
+The Supabase **anon key** in `config.js` is still required (it's what lets
+the page talk to Supabase at all — including attempting a sign-in), but it
+no longer grants access to any data by itself: every policy now requires
+both an authenticated session and the domain check above. That matters
+here because the key sits in this repo's public source — see **Data &
+privacy notes** below.
 
 ## Loading your student roster
 
@@ -186,10 +244,16 @@ when it sees one — nothing else needs to change when you bump it.
 - Roster, attendance, and teacher-name data all live in Supabase (Postgres),
   shared across every device that loads the app — this is what makes the
   live rosters work across multiple check-in tables.
-- The app uses Supabase's public **anon key** with open read/write
-  policies, appropriate for a trusted internal tool with no login screen.
-  Don't point this app at a Supabase project that also holds sensitive
-  unrelated data without tightening the policies first.
+- All of that requires signing in with a `@soarcharteracademy.org` Google
+  account (see **Staff sign-in** above), enforced by RLS policies at the
+  database level — the public **anon key** in `config.js` no longer grants
+  read or write access on its own, only the ability to attempt a sign-in.
+  This matters specifically because this repo (and therefore `config.js`)
+  is **public on GitHub**: without the domain-restricted sign-in, anyone
+  who found the repo could have read or edited every student's name,
+  grade, and attendance record directly via the Supabase API, without even
+  opening the app. Don't point this app at a Supabase project that also
+  holds other sensitive data without reviewing its policies independently.
 - If you set up Aeries live sync, its proxy URL and shared secret are kept
   only in that device's `localStorage` — never in Supabase, since the
   students/checkins tables are readable by anyone holding the app's anon
@@ -204,13 +268,13 @@ when it sees one — nothing else needs to change when you bump it.
 ## Project structure
 
 ```
-index.html                    Page markup (search box, walk-in form, room roster grid,
-                               Aeries settings dialog)
+index.html                    Page markup (sign-in screen, search box, walk-in form,
+                               room roster grid, Aeries settings dialog)
 style.css                     Styling
 config.js                     Your Supabase project URL + anon key (fill this in)
-app.js                        App logic: Supabase reads/writes, realtime sync, search,
-                               room assignment, live rendering, CSV import/export,
-                               Aeries sync + auto-refresh
+app.js                        App logic: sign-in/sign-out, Supabase reads/writes,
+                               realtime sync, search, room assignment, live
+                               rendering, CSV import/export, Aeries sync + auto-refresh
 sample-roster.csv             Template / demo roster (Student ID, Last Name, First Name, Grade)
 supabase/config.toml           Supabase CLI project config (optional, for local dev)
 supabase/migrations/*.sql      Database schema (students, checkins, room_teachers tables + policies)
