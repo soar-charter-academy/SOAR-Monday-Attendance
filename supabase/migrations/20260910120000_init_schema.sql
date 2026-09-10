@@ -54,6 +54,9 @@ create policy "public delete students" on students for delete using (true);
 
 create policy "public read checkins" on checkins for select using (true);
 create policy "public insert checkins" on checkins for insert with check (true);
+-- Update is needed for drag-and-drop between rooms (moveCheckin in app.js
+-- only ever changes room_id on an existing check-in row).
+create policy "public update checkins" on checkins for update using (true) with check (true);
 create policy "public delete checkins" on checkins for delete using (true);
 
 -- Realtime: broadcast changes on these tables so every open browser tab

@@ -208,6 +208,14 @@ main {
   display: flex;
   flex-direction: column;
   min-height: 220px;
+  outline: 2px dashed transparent;
+  outline-offset: -2px;
+  transition: outline-color 0.15s ease, background-color 0.15s ease;
+}
+
+.room-card.drop-target {
+  outline-color: var(--primary);
+  background: #eef4ff;
 }
 
 .room-card-header {
@@ -288,6 +296,11 @@ main {
   padding: 0.35rem 0.1rem;
   border-bottom: 1px solid #f0f2f5;
   font-size: 0.95rem;
+  cursor: grab;
+}
+
+.roster-list li.dragging {
+  opacity: 0.4;
 }
 
 .roster-list .remove-btn {

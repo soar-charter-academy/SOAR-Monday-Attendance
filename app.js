@@ -425,6 +425,38 @@
     showToast("Removed " + fullName(entry) + " from today's attendance.");
   }
 
+  // Used by drag-and-drop between room cards: moves an already-checked-in
+  // student to a different room, respecting that room's capacity (a manual
+  // move can't over-fill a room any more than automatic assignment can).
+  async function moveCheckin(checkinId, targetRoomId) {
+    const entry = checkins.find((c) => c.id === checkinId);
+    if (!db || !entry) return;
+    if (entry.roomId === targetRoomId) return; // dropped back where it started
+
+    const targetRoom = ROOMS.find((r) => r.id === targetRoomId);
+    if (!targetRoom) return;
+
+    if (countInRoom(targetRoomId) >= targetRoom.capacity) {
+      showToast("⚠️ " + targetRoom.name + " is full — can't move " + fullName(entry) + " there.");
+      return;
+    }
+
+    const fromRoom = ROOMS.find((r) => r.id === entry.roomId);
+    const previousRoomId = entry.roomId;
+    entry.roomId = targetRoomId;
+    renderRosters();
+
+    const { error } = await db.from("checkins").update({ room_id: targetRoomId }).eq("id", checkinId);
+    if (error) {
+      console.error(error);
+      showToast("Couldn't move " + fullName(entry) + ": " + error.message);
+      entry.roomId = previousRoomId; // roll back the optimistic move
+      renderRosters();
+      return;
+    }
+    showToast(fullName(entry) + " moved to " + targetRoom.name + (fromRoom ? " from " + fromRoom.name : "") + ".");
+  }
+
   // ---------------------------------------------------------------------
   // Realtime — keep every open browser tab in sync
   // ---------------------------------------------------------------------
@@ -440,6 +472,21 @@
           if (payload.new.check_date !== todayKey()) return;
           if (!checkins.some((c) => c.id === payload.new.id)) {
             checkins.push(mapCheckinRow(payload.new));
+            renderRosters();
+          }
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "checkins" },
+        (payload) => {
+          // Currently only room moves (drag-and-drop) update a check-in row
+          // in place; picking up the whole row keeps this correct even if
+          // that ever changes.
+          if (payload.new.check_date !== todayKey()) return;
+          const idx = checkins.findIndex((c) => c.id === payload.new.id);
+          if (idx !== -1) {
+            checkins[idx] = mapCheckinRow(payload.new);
             renderRosters();
           }
         }
@@ -563,6 +610,24 @@
       const card = document.createElement("div");
       card.className = "room-card";
 
+      // Drop target: dragging a student's roster row onto a different
+      // room card moves their check-in there (see moveCheckin).
+      card.addEventListener("dragenter", (e) => {
+        e.preventDefault(); // some browsers only allow drop if this is called too
+        card.classList.add("drop-target");
+      });
+      card.addEventListener("dragover", (e) => {
+        e.preventDefault(); // required to allow a drop at all
+        e.dataTransfer.dropEffect = "move";
+      });
+      card.addEventListener("dragleave", () => card.classList.remove("drop-target"));
+      card.addEventListener("drop", (e) => {
+        e.preventDefault();
+        card.classList.remove("drop-target");
+        const checkinId = e.dataTransfer.getData("text/plain");
+        if (checkinId) moveCheckin(checkinId, room.id);
+      });
+
       const header = document.createElement("div");
       header.className = "room-card-header";
       header.innerHTML =
@@ -602,6 +667,18 @@
       } else {
         entries.forEach((entry) => {
           const li = document.createElement("li");
+          li.draggable = true;
+          li.title = "Drag to another room to move this student";
+          li.addEventListener("dragstart", (e) => {
+            e.dataTransfer.setData("text/plain", entry.id);
+            e.dataTransfer.effectAllowed = "move";
+            // rAF so the drag image is captured before the style change —
+            // applying "dragging" synchronously makes some browsers drag a
+            // half-transparent ghost instead of the row's normal look.
+            requestAnimationFrame(() => li.classList.add("dragging"));
+          });
+          li.addEventListener("dragend", () => li.classList.remove("dragging"));
+
           const label = document.createElement("span");
           label.textContent = fullName(entry) + (entry.walkin ? " (walk-in)" : "");
           const removeBtn = document.createElement("button");
@@ -772,6 +849,46 @@
     await checkInStudent({ firstName, lastName, grade, walkin: true });
     el.walkinForm.reset();
     el.walkinDetails.open = false;
+  });
+
+  // ---------------------------------------------------------------------
+  // Update detection
+  // ---------------------------------------------------------------------
+  //
+  // This is meant to run unattended, possibly with the tab left open across
+  // multiple Mondays — normal browser caching won't pick up a new deploy for
+  // a tab that's never re-navigated. So instead of relying on cache headers
+  // alone, periodically re-fetch index.html with caching explicitly
+  // disabled and compare its <meta name="app-version"> against the version
+  // this page loaded with; a mismatch means a newer version has been
+  // deployed, so reload to pick it up.
+
+  const CURRENT_APP_VERSION = document.querySelector('meta[name="app-version"]').content;
+  const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+  async function checkForUpdate() {
+    try {
+      const res = await fetch("index.html?_=" + Date.now(), { cache: "no-store" });
+      if (!res.ok) return;
+      const html = await res.text();
+      const match = html.match(/<meta\s+name=["']app-version["']\s+content=["']([^"']+)["']/i);
+      const latestVersion = match && match[1];
+      if (latestVersion && latestVersion !== CURRENT_APP_VERSION) {
+        showToast("Updating to the latest version…");
+        setTimeout(() => location.reload(), 1500);
+      }
+    } catch (e) {
+      // Offline or the network hiccuped — not worth bothering anyone about;
+      // it'll just check again next time.
+      console.error("Update check failed", e);
+    }
+  }
+
+  setInterval(checkForUpdate, UPDATE_CHECK_INTERVAL_MS);
+  // Also check right when the tab regains focus/visibility — the common
+  // case of someone waking the device or switching back after a while.
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) checkForUpdate();
   });
 
   // ---------------------------------------------------------------------

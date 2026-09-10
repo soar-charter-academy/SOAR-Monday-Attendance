@@ -28,6 +28,9 @@ counts, synced across every device running the app.
    current count (e.g. "7 / 10"), a progress bar, and the list of students
    assigned there. Multiple check-in tables can run at once and stay in
    sync.
+5. **Made a wrong call on a room?** Drag a student's row from one room card
+   onto another to move them there — it still respects that room's
+   capacity, so you can't drag someone into a full room.
 
 ## Backend: Supabase
 
@@ -53,6 +56,12 @@ The roster and today's check-ins are stored in a Supabase project (Postgres
 
 That's it — reload the app and the banner at the top (which shows if
 Supabase isn't connected yet) should disappear.
+
+If you already ran an earlier version of this migration by hand (e.g. via
+the SQL Editor, before drag-and-drop was added), the `create table if not
+exists` statements will just no-op — re-run the file and it'll pick up the
+one new bit it's missing: the `checkins` update policy that drag-and-drop
+needs.
 
 The schema is two tables:
 - `students` — the uploaded roster (Student ID, last name, first name, grade).
@@ -107,9 +116,9 @@ grade band.
 - **Walk-ins** — if a student isn't on the uploaded roster, open "Student
   not on the list? Add a walk-in" under the search box to check them in
   manually by name and grade.
-- Made a mistake? Click the **✕** next to any name in a room's roster to
-  remove that check-in (e.g. to move a student to a different room — remove
-  them, then search and check them in again).
+- Click the **✕** next to any name in a room's roster to remove that
+  check-in entirely, or drag their row onto a different room card to move
+  them there instead (see above).
 
 Each room card also has a small **Teacher name** field. Whatever's typed
 there is included as the Teacher column on export — handy for handing a
@@ -128,6 +137,14 @@ Supabase.
 - **GitHub Pages**: in the repo settings, enable Pages for the `main`
   branch (root folder). The app will be live at
   `https://<org-or-user>.github.io/<repo-name>/`.
+
+**On every deploy**, bump the version number in two places so browser tabs
+left open from a previous Monday pick up the new code on their own:
+`<meta name="app-version" content="…">` near the top of `index.html`, and
+the matching `?v=…` on the `style.css`/`config.js`/`app.js` `<script>`/
+`<link>` tags right below it. `app.js` polls `index.html` every few minutes
+(and whenever a tab regains focus) for a version change and reloads itself
+when it sees one — nothing else needs to change when you bump it.
 
 ## Data & privacy notes
 
