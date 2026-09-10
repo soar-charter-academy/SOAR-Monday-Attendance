@@ -218,17 +218,43 @@
   // their check-in across roster re-syncs, even if the Aeries order changes.
   function setRoster(students, opts) {
     opts = opts || {};
-    roster = students.map((s, i) => ({
-      id: opts.stableIds ? "aeries-" + String(s.id) : "s" + i + "-" + slug(s.name),
-      name: s.name,
-      grade: normalizeGrade(s.grade),
-    }));
+    roster = students.map((s, i) => {
+      // Aeries hands back first/last name as separate fields (used as-is,
+      // for the export's Last Name/First Name columns); a CSV/sample
+      // roster only ever has one combined "Name" column, so fall back to
+      // splitting that — see splitName's own comment for the tradeoff.
+      const hasSeparateNames = typeof s.firstName === "string" || typeof s.lastName === "string";
+      const { firstName, lastName } = hasSeparateNames
+        ? { firstName: s.firstName || "", lastName: s.lastName || "" }
+        : splitName(s.name);
+      return {
+        id: opts.stableIds ? "aeries-" + String(s.id) : "s" + i + "-" + slug(s.name),
+        name: s.name,
+        firstName,
+        lastName,
+        grade: normalizeGrade(s.grade),
+      };
+    });
     saveRoster();
     renderAll();
   }
 
   function slug(name) {
     return String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
+  }
+
+  // Best-effort split of a single combined "First Last" string, for sources
+  // that only ever give us one name field (CSV upload, the sample roster,
+  // walk-ins). Splits at the FIRST space, so a multi-word last name like
+  // "Ruben Reyes Jr." (First: Ruben, Last: Reyes Jr.) comes out right; a
+  // multi-word first name would not (there's no way to tell those apart
+  // from a combined string alone). Aeries-synced students bypass this
+  // entirely since Aeries gives first/last as separate fields already.
+  function splitName(fullName) {
+    const trimmed = String(fullName || "").trim();
+    const firstSpace = trimmed.indexOf(" ");
+    if (firstSpace === -1) return { firstName: trimmed, lastName: "" };
+    return { firstName: trimmed.slice(0, firstSpace), lastName: trimmed.slice(firstSpace + 1) };
   }
 
   function parseCsv(text) {
@@ -360,10 +386,20 @@
       showToast("⚠️ All rooms full for " + gradeLabel);
       return;
     }
+    // A roster match already carries firstName/lastName (see setRoster); a
+    // walk-in only ever has the one combined name field the form collects,
+    // so fall back to splitting it the same way setRoster does.
+    const hasSeparateNames = typeof student.firstName === "string" || typeof student.lastName === "string";
+    const { firstName, lastName } = hasSeparateNames
+      ? { firstName: student.firstName || "", lastName: student.lastName || "" }
+      : splitName(student.name);
+
     checkins.push({
       id: "c" + Date.now() + "-" + Math.random().toString(36).slice(2, 7),
       studentId: student.id || null,
       name: student.name,
+      firstName,
+      lastName,
       grade: student.grade,
       roomId: room.id,
       time: new Date().toISOString(),
@@ -596,9 +632,7 @@
   }
 
   function exportCsv() {
-    const roomsById = Object.fromEntries(ROOMS.map((r) => [r.id, r.name]));
-    const dateStr = todayKey();
-    const rows = [["Student ID", "Name", "Room", "Teacher", "Date"]];
+    const rows = [["Student ID", "Last Name", "First Name", "Grade"]];
     checkins
       .slice()
       .sort((a, b) => {
@@ -611,10 +645,9 @@
       .forEach((c) => {
         rows.push([
           studentIdForExport(c),
-          c.name,
-          roomsById[c.roomId] || c.roomId,
-          teachers[c.roomId] || "",
-          dateStr,
+          c.lastName || "",
+          c.firstName || "",
+          GRADE_LABELS[c.grade] || c.grade,
         ]);
       });
     const csv = rows.map((r) => r.map(csvEscape).join(",")).join("\r\n");

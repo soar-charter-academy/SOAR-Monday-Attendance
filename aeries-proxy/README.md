@@ -10,7 +10,7 @@ Browser (app.js) --GET /roster (X-App-Secret)--> this Worker --AERIES-CERT--> Ae
 
 The worker holds the real Aeries credentials as server-side secrets and
 exposes exactly one endpoint: `GET /roster`, returning
-`{ roster: [{ id, name, grade }], fetchedAt }`. It does not store anything —
+`{ roster: [{ id, name, firstName, lastName, grade }], fetchedAt }`. It does not store anything —
 every request is a fresh pull from Aeries.
 
 ## What you need first

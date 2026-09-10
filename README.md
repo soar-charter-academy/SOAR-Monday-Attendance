@@ -83,11 +83,17 @@ roster changes (new students, grade promotions, etc.).
 ## Other tools in the header
 
 - **Export Today's Attendance (CSV)** — downloads a CSV of everyone checked
-  in today, with columns: Student ID, Name, Room, Teacher, Date, sorted
-  alphabetically by Teacher. Student ID is only populated for students
-  synced from Aeries (it's blank for a CSV-uploaded roster, the sample
-  roster, or a walk-in, since none of those carry a real district ID);
-  Teacher comes from that room's "Teacher name" field.
+  in today, with columns: Student ID, Last Name, First Name, Grade. Rows are
+  sorted alphabetically by each student's room's Teacher name (that field
+  itself isn't a column in the export — it's just the sort order). Student
+  ID is only populated for students synced from Aeries (it's blank for a
+  CSV-uploaded roster, the sample roster, or a walk-in, since none of those
+  carry a real district ID). Last/First name come from Aeries directly for
+  synced students; for anyone else, they're split from the single "Name"
+  that source provides (at the first space, so e.g. "Ruben Reyes Jr." comes
+  out as Last: "Reyes Jr.", First: "Ruben" — a multi-word *first* name would
+  not split correctly, since a combined string alone can't tell the two
+  apart).
 - **Reset Today** — clears all of today's check-ins (with a confirmation
   prompt) so you can start a fresh session. It does not touch your uploaded
   roster.

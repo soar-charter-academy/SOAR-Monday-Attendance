@@ -6,7 +6,7 @@
  * holds the real credentials as server-side secrets and exposes exactly one
  * narrow endpoint the app calls from the browser:
  *
- *   GET /roster  ->  { roster: [{ id, name, grade }, ...], fetchedAt }
+ *   GET /roster  ->  { roster: [{ id, name, firstName, lastName, grade }, ...], fetchedAt }
  *
  * See ../README.md ("Live sync from Aeries") for deployment steps.
  *
@@ -75,11 +75,17 @@ export default {
     const roster = perSchool
       .flatMap((r) => r.students)
       .filter((s) => !s.InactiveStatusCode && !s.DeleteStatus) // active enrollment only
-      .map((s) => ({
-        id: String(s.StudentID ?? s.PermanentID ?? s.LastName + "-" + s.FirstName),
-        name: (String(s.FirstName || "") + " " + String(s.LastName || "")).trim(),
-        grade: mapAeriesGrade(s.Grade ?? s.GradeLevel),
-      }))
+      .map((s) => {
+        const firstName = String(s.FirstName || "").trim();
+        const lastName = String(s.LastName || "").trim();
+        return {
+          id: String(s.StudentID ?? s.PermanentID ?? s.LastName + "-" + s.FirstName),
+          name: (firstName + " " + lastName).trim(),
+          firstName,
+          lastName,
+          grade: mapAeriesGrade(s.Grade ?? s.GradeLevel),
+        };
+      })
       .filter((s) => s.name);
 
     // Combining schools can occasionally produce the same student twice
