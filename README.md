@@ -83,9 +83,8 @@ roster changes (new students, grade promotions, etc.).
 ## Other tools in the header
 
 - **Export Today's Attendance (CSV)** — downloads a CSV of everyone checked
-  in today, with columns: Student ID, Last Name, First Name, Grade. Rows are
-  sorted alphabetically by each student's room's Teacher name (that field
-  itself isn't a column in the export — it's just the sort order). Student
+  in today, with columns: Student ID, Last Name, First Name, Grade, Teacher.
+  Rows are sorted alphabetically by Teacher. Student
   ID is only populated for students synced from Aeries (it's blank for a
   CSV-uploaded roster, the sample roster, or a walk-in, since none of those
   carry a real district ID). Last/First name come from Aeries directly for

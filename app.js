@@ -632,7 +632,7 @@
   }
 
   function exportCsv() {
-    const rows = [["Student ID", "Last Name", "First Name", "Grade"]];
+    const rows = [["Student ID", "Last Name", "First Name", "Grade", "Teacher"]];
     checkins
       .slice()
       .sort((a, b) => {
@@ -648,6 +648,7 @@
           c.lastName || "",
           c.firstName || "",
           GRADE_LABELS[c.grade] || c.grade,
+          teachers[c.roomId] || "",
         ]);
       });
     const csv = rows.map((r) => r.map(csvEscape).join(",")).join("\r\n");
