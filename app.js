@@ -329,11 +329,17 @@
   // uploads and the sample roster don't have that stability guarantee (a
   // CSV's Student ID column, if any, isn't necessarily durable), so they
   // keep doing a full wipe-and-reinsert instead.
+  //
+  // Returns true/false so callers know whether to show their own "loaded
+  // N students" success toast -- every failure path below already shows
+  // its own error toast, and showToast() replaces whatever's currently
+  // displayed, so a caller that always shows a success toast regardless of
+  // the outcome would instantly bury that error under a false "success".
   async function setRoster(students, opts) {
     opts = opts || {};
     if (!db) {
       showToast("Connect Supabase first — see config.js.");
-      return;
+      return false;
     }
     const rows = students
       .map((s) => ({
@@ -346,15 +352,21 @@
 
     if (opts.preserveIds) {
       const rowsWithId = rows.filter((r) => r.student_id);
-      if (rowsWithId.length > 0) {
-        const { error: upsertErr } = await db
-          .from("students")
-          .upsert(rowsWithId, { onConflict: "student_id" });
-        if (upsertErr) {
-          console.error(upsertErr);
-          showToast("Couldn't save the synced roster: " + upsertErr.message);
-          return;
-        }
+      // A synced roster with no IDed rows at all (e.g. a proxy hiccup
+      // returning an empty/malformed roster) would otherwise fall through
+      // to the "remove withdrawn students" step below with an empty
+      // keepIds set, deleting every single student. Refuse instead.
+      if (rowsWithId.length === 0) {
+        showToast("Aeries sync returned no usable students -- roster left unchanged.");
+        return false;
+      }
+      const { error: upsertErr } = await db
+        .from("students")
+        .upsert(rowsWithId, { onConflict: "student_id" });
+      if (upsertErr) {
+        console.error(upsertErr);
+        showToast("Couldn't save the synced roster: " + upsertErr.message);
+        return false;
       }
 
       // Anyone no longer in the freshly synced roster (e.g. withdrawn)
@@ -381,20 +393,21 @@
       if (delErr) {
         console.error(delErr);
         showToast("Couldn't clear the old roster: " + delErr.message);
-        return;
+        return false;
       }
       if (rows.length > 0) {
         const { error: insErr } = await db.from("students").insert(rows);
         if (insErr) {
           console.error(insErr);
           showToast("Couldn't save the new roster: " + insErr.message);
-          return;
+          return false;
         }
       }
     }
 
     await loadRoster();
     renderAll();
+    return true;
   }
 
   // Aeries roster exports use varying header names across school configs;
@@ -493,11 +506,15 @@
         lastName: s.lastName || "",
         grade: s.grade,
       }));
-      await setRoster(students, { preserveIds: true });
-      aeriesConfig.lastSyncedAt = new Date().toISOString();
-      saveAeriesConfig();
-      renderAeriesStatus();
-      if (!opts.silent) showToast("✅ Synced " + students.length + " students from Aeries.");
+      const saved = await setRoster(students, { preserveIds: true });
+      if (saved) {
+        aeriesConfig.lastSyncedAt = new Date().toISOString();
+        saveAeriesConfig();
+        renderAeriesStatus();
+        // setRoster already showed its own error toast on failure -- only
+        // show this one when the roster was actually saved.
+        if (!opts.silent) showToast("✅ Synced " + students.length + " students from Aeries.");
+      }
     } catch (err) {
       const message = err.name === "AbortError" ? "Sync proxy timed out" : err.message;
       console.error("Aeries sync failed", err);
@@ -1031,16 +1048,20 @@
         showToast("That CSV didn't have any usable rows (expected Last Name, First Name, Grade columns — Student ID optional).");
         return;
       }
-      await setRoster(students);
-      showToast("Loaded " + students.length + " students from " + file.name);
+      // setRoster already shows its own error toast on failure -- only
+      // show this one when the roster was actually saved.
+      if (await setRoster(students)) {
+        showToast("Loaded " + students.length + " students from " + file.name);
+      }
     };
     reader.readAsText(file);
     el.csvFile.value = "";
   });
 
   el.sampleRosterBtn.addEventListener("click", async () => {
-    await setRoster(SAMPLE_ROSTER);
-    showToast("Loaded the sample demo roster (" + SAMPLE_ROSTER.length + " students).");
+    if (await setRoster(SAMPLE_ROSTER)) {
+      showToast("Loaded the sample demo roster (" + SAMPLE_ROSTER.length + " students).");
+    }
   });
 
   el.exportBtn.addEventListener("click", () => {
