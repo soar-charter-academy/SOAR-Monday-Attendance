@@ -601,7 +601,13 @@
     const rows = [["Student ID", "Name", "Room", "Teacher", "Date"]];
     checkins
       .slice()
-      .sort((a, b) => new Date(a.time) - new Date(b.time))
+      .sort((a, b) => {
+        const teacherA = teachers[a.roomId] || "";
+        const teacherB = teachers[b.roomId] || "";
+        // Group rows by teacher; within the same teacher, keep the original
+        // check-in-time order rather than an arbitrary one.
+        return teacherA.localeCompare(teacherB) || new Date(a.time) - new Date(b.time);
+      })
       .forEach((c) => {
         rows.push([
           studentIdForExport(c),
