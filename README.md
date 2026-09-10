@@ -7,8 +7,8 @@ counts, synced across every device running the app.
 
 ## How it works
 
-1. **Sign in** — with a staff email/password account (see **Staff
-   sign-in** below). Nothing else on the page works until you do.
+1. **Sign in** — with a `@soarcharteracademy.org` Google account (see
+   **Staff sign-in** below). Nothing else on the page works until you do.
 2. **Search** — start typing a student's name in the search box. Matching
    students appear in a dropdown as you type.
 3. **Click** — click the student (or press Enter to pick the highlighted
@@ -78,31 +78,60 @@ Auth session for every read and write — see **Staff sign-in** below.
 
 ## Staff sign-in
 
-The app requires an email/password sign-in before showing any student
-data. There's no public self-serve sign-up — an admin creates each staff
-account directly in the Supabase dashboard:
+The app requires signing in with a **Google account on the
+`@soarcharteracademy.org` domain** before showing any student data —
+staff use their existing school Google account; there's no separate
+password to create or manage, and no other domain can sign in.
 
-1. Go to **Authentication → Users** in your Supabase project.
-2. Click **Add user** (not "Invite" unless you also want to set up email
-   delivery) and give them an email + a temporary password.
-3. Share that email/password with the staff member — they can sign in
-   right away, and can change their password later from the same
-   Authentication → Users screen (select the user → **Send password
-   recovery**), or an admin can just set a new one directly.
+**One-time setup, in this order:**
 
-Everyone with an account has the same access — there's no separate
-admin/staff role. Signing out (the **Sign Out** button in the header)
-clears that device's session; signing back in picks up right where the
-shared roster/check-ins/teacher names already are, since none of that is
-tied to who's signed in.
+1. **Google Cloud Console** → create (or reuse) a project → **APIs &
+   Services → OAuth consent screen**:
+   - If `soarcharteracademy.org` is a Google Workspace domain, set
+     **User Type** to **Internal**. This is the strongest option — Google
+     itself refuses the sign-in for any account outside the Workspace, so
+     a wrong-domain account never even reaches this app.
+   - Otherwise, **External** still works — this app's own checks (below)
+     enforce the domain instead of Google doing it for you at the account
+     picker.
+2. Still in Google Cloud Console: **Credentials → Create Credentials →
+   OAuth client ID → Web application**. For **Authorized redirect URIs**,
+   use the callback URL Supabase shows you in the next step.
+3. **Supabase dashboard → Authentication → Providers → Google** — enable
+   it, paste the Client ID + Client Secret from step 2, save. Copy the
+   callback URL shown here into step 2 if you haven't already.
+4. **Supabase dashboard → Authentication → URL Configuration → Redirect
+   URLs** — add every URL this app is actually served from (its GitHub
+   Pages URL, plus e.g. `http://localhost:8000` if you test locally).
+   Google OAuth will refuse to redirect back to a URL that isn't listed
+   here.
+
+That's it — no accounts to create per staff member. Anyone signing in
+with a `@soarcharteracademy.org` Google account gets in immediately, with
+the same access as everyone else (there's no separate admin/staff role).
+Signing out (the **Sign Out** button in the header) clears that device's
+session; signing back in picks up right where the shared
+roster/check-ins/teacher names already are, since none of that is tied to
+who's signed in.
+
+**Where the domain restriction is actually enforced:** every table's RLS
+policy checks a `is_org_user()` database function that reads the signed-in
+user's email off their Supabase session and requires it to end in
+`@soarcharteracademy.org` — this is checked on every single request, at
+the database, which is what actually protects the data regardless of what
+Google or the app's UI do. The app also does its own check right after
+sign-in (immediately signing out and showing an error for a wrong-domain
+account) purely so that mistake produces a clear message instead of a
+confusingly broken, empty app — that check alone would **not** stop
+someone from reading data by calling the Supabase API directly, only the
+database-level policy does that.
 
 The Supabase **anon key** in `config.js` is still required (it's what lets
-the page talk to Supabase at all — including attempting a sign-in) but,
-unlike before staff accounts existed, it no longer grants access to any
-data by itself: every policy now checks `auth.role() = 'authenticated'`,
-which is only true for an actual signed-in session, not just anyone
-holding the key. That matters here because the key sits in this
-repo's public source — see **Data & privacy notes** below.
+the page talk to Supabase at all — including attempting a sign-in), but it
+no longer grants access to any data by itself: every policy now requires
+both an authenticated session and the domain check above. That matters
+here because the key sits in this repo's public source — see **Data &
+privacy notes** below.
 
 ## Loading your student roster
 
@@ -215,15 +244,16 @@ when it sees one — nothing else needs to change when you bump it.
 - Roster, attendance, and teacher-name data all live in Supabase (Postgres),
   shared across every device that loads the app — this is what makes the
   live rosters work across multiple check-in tables.
-- All of that requires a signed-in Supabase Auth session (see **Staff
-  sign-in** above) — the public **anon key** in `config.js` no longer grants
+- All of that requires signing in with a `@soarcharteracademy.org` Google
+  account (see **Staff sign-in** above), enforced by RLS policies at the
+  database level — the public **anon key** in `config.js` no longer grants
   read or write access on its own, only the ability to attempt a sign-in.
   This matters specifically because this repo (and therefore `config.js`)
-  is **public on GitHub**: without staff accounts, anyone who found the
-  repo could have read or edited every student's name, grade, and
-  attendance record directly via the Supabase API, without even opening
-  the app. Don't point this app at a Supabase project that also holds
-  other sensitive data without reviewing its policies independently.
+  is **public on GitHub**: without the domain-restricted sign-in, anyone
+  who found the repo could have read or edited every student's name,
+  grade, and attendance record directly via the Supabase API, without even
+  opening the app. Don't point this app at a Supabase project that also
+  holds other sensitive data without reviewing its policies independently.
 - If you set up Aeries live sync, its proxy URL and shared secret are kept
   only in that device's `localStorage` — never in Supabase, since the
   students/checkins tables are readable by anyone holding the app's anon
