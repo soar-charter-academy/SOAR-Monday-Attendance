@@ -224,6 +224,30 @@ main {
 .room-count.warn { color: var(--warn); }
 .room-count.full { color: var(--full); }
 
+.teacher-input {
+  display: block;
+  width: 100%;
+  border: none;
+  border-bottom: 1px dashed var(--border);
+  background: transparent;
+  padding: 0.15rem 0;
+  margin-bottom: 0.6rem;
+  font-size: 0.85rem;
+  font-style: italic;
+  color: var(--muted);
+}
+
+.teacher-input:focus {
+  outline: none;
+  border-bottom: 1px solid var(--primary);
+  color: var(--text);
+}
+
+.teacher-input:not(:placeholder-shown) {
+  font-style: normal;
+  color: var(--text);
+}
+
 .progress-track {
   height: 8px;
   background: #eef1f6;

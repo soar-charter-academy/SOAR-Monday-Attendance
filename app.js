@@ -72,6 +72,7 @@
   const STORAGE_ROSTER_KEY = "mondayAttendance.roster.v1";
   const STORAGE_CHECKIN_PREFIX = "mondayAttendance.checkins.v1.";
   const STORAGE_AERIES_CONFIG_KEY = "mondayAttendance.aeriesConfig.v1";
+  const STORAGE_TEACHERS_KEY = "mondayAttendance.teachers.v1";
   const AERIES_SYNC_TIMEOUT_MS = 15000;
 
   // ---------------------------------------------------------------------
@@ -82,6 +83,7 @@
   let checkins = loadCheckins(); // [{ id, studentId, name, grade, roomId, time, walkin }]
   let activeSuggestionIndex = -1;
   let aeriesConfig = loadAeriesConfig(); // { workerUrl, sharedSecret, autoRefreshEnabled, autoRefreshMinutes, lastSyncedAt }
+  let teachers = loadTeachers(); // { [roomId]: teacherName } — persists like the roster, untouched by Reset Today
   let aeriesTimer = null;
 
   // ---------------------------------------------------------------------
@@ -145,6 +147,20 @@
 
   function saveRoster() {
     localStorage.setItem(STORAGE_ROSTER_KEY, JSON.stringify(roster));
+  }
+
+  function loadTeachers() {
+    try {
+      const raw = localStorage.getItem(STORAGE_TEACHERS_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch (e) {
+      console.error("Failed to load teacher names", e);
+      return {};
+    }
+  }
+
+  function saveTeachers() {
+    localStorage.setItem(STORAGE_TEACHERS_KEY, JSON.stringify(teachers));
   }
 
   function loadCheckins() {
@@ -493,6 +509,21 @@
         '<span class="room-count ' + level + '">' + count + " / " + room.capacity + "</span>";
       card.appendChild(header);
 
+      const teacherInput = document.createElement("input");
+      teacherInput.type = "text";
+      teacherInput.className = "teacher-input";
+      teacherInput.placeholder = "Teacher name";
+      teacherInput.value = teachers[room.id] || "";
+      teacherInput.setAttribute("aria-label", room.name + " teacher name");
+      // Saved on every keystroke (not just on blur) so an in-progress edit
+      // survives even if something else (e.g. an Aeries auto-refresh)
+      // triggers a re-render while someone is mid-type.
+      teacherInput.addEventListener("input", () => {
+        teachers[room.id] = teacherInput.value;
+        saveTeachers();
+      });
+      card.appendChild(teacherInput);
+
       const track = document.createElement("div");
       track.className = "progress-track";
       const fill = document.createElement("div");
@@ -552,18 +583,32 @@
   // Export
   // ---------------------------------------------------------------------
 
+  // Aeries-synced students carry a real district Student ID (prefixed
+  // "aeries-" internally so it can't collide with CSV/sample-roster ids —
+  // see setRoster's stableIds option). CSV-uploaded, sample-roster, and
+  // walk-in students don't have a real district ID to report, so those
+  // export with a blank Student ID rather than a made-up internal one.
+  function studentIdForExport(entry) {
+    if (entry.studentId && entry.studentId.startsWith("aeries-")) {
+      return entry.studentId.slice("aeries-".length);
+    }
+    return "";
+  }
+
   function exportCsv() {
     const roomsById = Object.fromEntries(ROOMS.map((r) => [r.id, r.name]));
-    const rows = [["Name", "Grade", "Room", "Check-in Time"]];
+    const dateStr = todayKey();
+    const rows = [["Student ID", "Name", "Room", "Teacher", "Date"]];
     checkins
       .slice()
       .sort((a, b) => new Date(a.time) - new Date(b.time))
       .forEach((c) => {
         rows.push([
+          studentIdForExport(c),
           c.name,
-          GRADE_LABELS[c.grade] || c.grade,
           roomsById[c.roomId] || c.roomId,
-          new Date(c.time).toLocaleTimeString(),
+          teachers[c.roomId] || "",
+          dateStr,
         ]);
       });
     const csv = rows.map((r) => r.map(csvEscape).join(",")).join("\r\n");

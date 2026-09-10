@@ -27,6 +27,10 @@ counts on screen the whole time.
    updates immediately with its current count (e.g. "7 / 10"), a progress
    bar, and the list of students currently assigned there. No refresh
    needed.
+5. **Teacher name** — each room card has a "Teacher name" field at the top;
+   type in whoever's running that room. It's saved per room (like the
+   roster) and stays put across days and resets — update it only when it
+   changes.
 
 ## Live sync from Aeries (optional)
 
@@ -79,8 +83,11 @@ roster changes (new students, grade promotions, etc.).
 ## Other tools in the header
 
 - **Export Today's Attendance (CSV)** — downloads a CSV of everyone checked
-  in today: name, grade, assigned room, and check-in time. Handy for
-  records or for sharing with room leads.
+  in today, with columns: Student ID, Name, Room, Teacher, Date. Student ID
+  is only populated for students synced from Aeries (it's blank for a
+  CSV-uploaded roster, the sample roster, or a walk-in, since none of those
+  carry a real district ID); Teacher comes from that room's "Teacher name"
+  field.
 - **Reset Today** — clears all of today's check-ins (with a confirmation
   prompt) so you can start a fresh session. It does not touch your uploaded
   roster.
