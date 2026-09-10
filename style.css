@@ -38,6 +38,75 @@ body {
   border-bottom-color: #f3c9c3;
 }
 
+.auth-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.auth-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2rem;
+  width: 100%;
+  max-width: 360px;
+  box-shadow: 0 8px 24px rgba(20, 30, 40, 0.08);
+}
+
+.auth-card h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.4rem;
+  text-align: center;
+}
+
+.auth-subtitle {
+  margin: 0 0 1.5rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.auth-card label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin: 0 0 1rem;
+}
+
+.auth-card input {
+  display: block;
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: normal;
+}
+
+.auth-submit {
+  width: 100%;
+  padding: 0.7rem;
+  font-size: 0.95rem;
+}
+
+.auth-error {
+  color: var(--danger);
+  font-weight: 600;
+  font-size: 0.88rem;
+  margin: -0.4rem 0 1rem;
+}
+
+.auth-help {
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-align: center;
+  margin: 1.25rem 0 0;
+}
+
 .app-header {
   display: flex;
   flex-wrap: wrap;
