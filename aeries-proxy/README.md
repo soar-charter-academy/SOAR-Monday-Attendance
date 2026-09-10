@@ -18,7 +18,8 @@ every request is a fresh pull from Aeries.
 - **Aeries API access**: your district's Aeries administrator needs to issue
   an API key (the `AERIES-CERT` value) scoped to student roster data, plus
   confirm your district's Aeries base URL (e.g.
-  `https://yourdistrict.aeries.net`) and the school code to pull students
+  `https://soaracademyapi.aeries.net`, just the domain — the worker appends
+  the `/admin/api/v5/...` path itself) and the school code to pull students
   for.
 - **A Cloudflare account** (free tier is enough) and the `wrangler` CLI:
   `npm install -g wrangler`, then `wrangler login`.
@@ -27,7 +28,8 @@ every request is a fresh pull from Aeries.
 
 ```bash
 cd aeries-proxy
-wrangler secret put AERIES_BASE_URL      # e.g. https://yourdistrict.aeries.net
+wrangler secret put AERIES_BASE_URL      # e.g. https://soaracademyapi.aeries.net
+                                          # (just the domain, no path)
 wrangler secret put AERIES_API_KEY       # the AERIES-CERT key from your district
 wrangler secret put AERIES_SCHOOL_CODE   # the school code to sync — or a
                                           # comma-separated list, e.g. "1,2",
@@ -75,7 +77,7 @@ to test against). Before your first real Monday:
 Also worth double-checking: the "active enrollment" filter
 (`!s.InactiveStatusCode && !s.DeleteStatus`) — confirm those are the right
 fields for excluding withdrawn/inactive students in your district's Aeries
-data, and that the endpoint path (`/api/v5/schools/{code}/students`)
+data, and that the endpoint path (`/admin/api/v5/schools/{code}/students`)
 matches your Aeries API version.
 
 ## Local testing (no Cloudflare account needed)

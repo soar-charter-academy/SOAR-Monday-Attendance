@@ -11,7 +11,8 @@
  * See ../README.md ("Live sync from Aeries") for deployment steps.
  *
  * Required config (set with `wrangler secret put <NAME>`, see wrangler.toml):
- *   AERIES_BASE_URL     e.g. https://yourdistrict.aeries.net
+ *   AERIES_BASE_URL     e.g. https://soaracademyapi.aeries.net — just the
+ *                       domain; this worker appends /admin/api/v5/... itself
  *   AERIES_API_KEY      the AERIES-CERT value issued by your district
  *   AERIES_SCHOOL_CODE  the school code(s) to pull students for — a single
  *                       code (e.g. "1") or a comma-separated list to combine
@@ -91,7 +92,7 @@ export default {
 };
 
 async function fetchSchoolStudents(baseUrl, schoolCode, apiKey) {
-  const aeriesUrl = baseUrl + "/api/v5/schools/" + encodeURIComponent(schoolCode) + "/students";
+  const aeriesUrl = baseUrl + "/admin/api/v5/schools/" + encodeURIComponent(schoolCode) + "/students";
 
   let aeriesRes;
   try {

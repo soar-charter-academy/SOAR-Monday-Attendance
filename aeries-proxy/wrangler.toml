@@ -12,7 +12,8 @@ compatibility_date = "2024-01-01"
 ALLOWED_ORIGIN = "https://soar-charter-academy.github.io"
 
 # Secrets to set once, after `wrangler login`:
-#   wrangler secret put AERIES_BASE_URL       # e.g. https://yourdistrict.aeries.net
+#   wrangler secret put AERIES_BASE_URL       # e.g. https://soaracademyapi.aeries.net
+#                                              # (just the domain, no path)
 #   wrangler secret put AERIES_API_KEY        # the AERIES-CERT key from your district
 #   wrangler secret put AERIES_SCHOOL_CODE    # the school code(s) to sync —
 #                                              # a single code ("1") or a
