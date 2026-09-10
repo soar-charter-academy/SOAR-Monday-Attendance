@@ -29,7 +29,10 @@ every request is a fresh pull from Aeries.
 cd aeries-proxy
 wrangler secret put AERIES_BASE_URL      # e.g. https://yourdistrict.aeries.net
 wrangler secret put AERIES_API_KEY       # the AERIES-CERT key from your district
-wrangler secret put AERIES_SCHOOL_CODE   # the school code to sync
+wrangler secret put AERIES_SCHOOL_CODE   # the school code to sync — or a
+                                          # comma-separated list, e.g. "1,2",
+                                          # to combine multiple schools into
+                                          # one roster
 wrangler secret put APP_SHARED_SECRET    # make up any random string
 wrangler deploy
 ```

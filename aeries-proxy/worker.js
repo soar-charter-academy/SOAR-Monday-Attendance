@@ -13,7 +13,9 @@
  * Required config (set with `wrangler secret put <NAME>`, see wrangler.toml):
  *   AERIES_BASE_URL     e.g. https://yourdistrict.aeries.net
  *   AERIES_API_KEY      the AERIES-CERT value issued by your district
- *   AERIES_SCHOOL_CODE  the school code to pull students for
+ *   AERIES_SCHOOL_CODE  the school code(s) to pull students for — a single
+ *                       code (e.g. "1") or a comma-separated list to combine
+ *                       multiple schools into one roster (e.g. "1,2")
  *   APP_SHARED_SECRET   a random string only the app knows; checked against
  *                       the `X-App-Secret` request header so this endpoint
  *                       isn't an open, unauthenticated proxy for student PII
@@ -52,33 +54,25 @@ export default {
       return json({ error: "Worker is missing Aeries configuration" }, 500, corsHeaders);
     }
 
-    const aeriesUrl =
-      env.AERIES_BASE_URL.replace(/\/$/, "") +
-      "/aeries/api/v5/schools/" +
-      encodeURIComponent(env.AERIES_SCHOOL_CODE) +
-      "/students";
+    // AERIES_SCHOOL_CODE may be a single code ("1") or a comma-separated
+    // list ("1,2") to combine multiple schools into one roster.
+    const schoolCodes = String(env.AERIES_SCHOOL_CODE)
+      .split(",")
+      .map((c) => c.trim())
+      .filter(Boolean);
 
-    let aeriesRes;
-    try {
-      aeriesRes = await fetch(aeriesUrl, {
-        headers: { "AERIES-CERT": env.AERIES_API_KEY, Accept: "application/json" },
-      });
-    } catch (err) {
-      return json({ error: "Could not reach Aeries: " + err.message }, 502, corsHeaders);
+    const baseUrl = env.AERIES_BASE_URL.replace(/\/$/, "");
+    const perSchool = await Promise.all(
+      schoolCodes.map((code) => fetchSchoolStudents(baseUrl, code, env.AERIES_API_KEY))
+    );
+
+    const failed = perSchool.find((r) => r.error);
+    if (failed) {
+      return json({ error: `School ${failed.schoolCode}: ${failed.error}` }, 502, corsHeaders);
     }
 
-    if (!aeriesRes.ok) {
-      return json({ error: "Aeries API returned " + aeriesRes.status }, 502, corsHeaders);
-    }
-
-    let students;
-    try {
-      students = await aeriesRes.json();
-    } catch (err) {
-      return json({ error: "Aeries API returned invalid JSON" }, 502, corsHeaders);
-    }
-
-    const roster = (Array.isArray(students) ? students : [])
+    const roster = perSchool
+      .flatMap((r) => r.students)
       .filter((s) => !s.InactiveStatusCode && !s.DeleteStatus) // active enrollment only
       .map((s) => ({
         id: String(s.StudentID ?? s.PermanentID ?? s.LastName + "-" + s.FirstName),
@@ -87,9 +81,38 @@ export default {
       }))
       .filter((s) => s.name);
 
-    return json({ roster, fetchedAt: new Date().toISOString() }, 200, corsHeaders);
+    // Combining schools can occasionally produce the same student twice
+    // (e.g. a shared enrollment record) — de-dupe by id, keeping the first.
+    const seen = new Set();
+    const dedupedRoster = roster.filter((s) => (seen.has(s.id) ? false : seen.add(s.id)));
+
+    return json({ roster: dedupedRoster, fetchedAt: new Date().toISOString() }, 200, corsHeaders);
   },
 };
+
+async function fetchSchoolStudents(baseUrl, schoolCode, apiKey) {
+  const aeriesUrl = baseUrl + "/aeries/api/v5/schools/" + encodeURIComponent(schoolCode) + "/students";
+
+  let aeriesRes;
+  try {
+    aeriesRes = await fetch(aeriesUrl, {
+      headers: { "AERIES-CERT": apiKey, Accept: "application/json" },
+    });
+  } catch (err) {
+    return { schoolCode, error: "Could not reach Aeries: " + err.message };
+  }
+
+  if (!aeriesRes.ok) {
+    return { schoolCode, error: "Aeries API returned " + aeriesRes.status };
+  }
+
+  try {
+    const students = await aeriesRes.json();
+    return { schoolCode, students: Array.isArray(students) ? students : [] };
+  } catch (err) {
+    return { schoolCode, error: "Aeries API returned invalid JSON" };
+  }
+}
 
 // Aeries reports grade level as a small integer in most district
 // configurations: 0 for Kindergarten and 1-12 for grades 1-12, with TK

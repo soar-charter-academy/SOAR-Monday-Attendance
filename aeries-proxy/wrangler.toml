@@ -14,6 +14,9 @@ ALLOWED_ORIGIN = "https://soar-charter-academy.github.io"
 # Secrets to set once, after `wrangler login`:
 #   wrangler secret put AERIES_BASE_URL       # e.g. https://yourdistrict.aeries.net
 #   wrangler secret put AERIES_API_KEY        # the AERIES-CERT key from your district
-#   wrangler secret put AERIES_SCHOOL_CODE    # the school code to sync
+#   wrangler secret put AERIES_SCHOOL_CODE    # the school code(s) to sync —
+#                                              # a single code ("1") or a
+#                                              # comma-separated list ("1,2")
+#                                              # to combine multiple schools
 #   wrangler secret put APP_SHARED_SECRET     # any random string; enter the same
 #                                              # value in the app's Aeries Settings
