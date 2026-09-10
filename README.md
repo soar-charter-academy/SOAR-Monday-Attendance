@@ -87,9 +87,11 @@ roster changes (new students, grade promotions, etc.).
 - **Walk-ins** — if a student isn't on the uploaded roster, open "Student
   not on the list? Add a walk-in" under the search box to check them in
   manually by name and grade.
-- Made a mistake? Click the **✕** next to any name in a room's roster to
-  remove that check-in (e.g. to move a student to a different room — remove
-  them, then search and check them in again).
+- **Move a student between rooms** — drag their name from one room's roster
+  and drop it onto a different room card. Blocked if the target room is
+  already full (you'll get a message instead of an over-filled room).
+- Made a mistake and just want them gone? Click the **✕** next to their name
+  to remove the check-in entirely.
 
 ## Running it
 

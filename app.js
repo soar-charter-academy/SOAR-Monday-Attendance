@@ -368,6 +368,29 @@
     if (entry) showToast("Removed " + entry.name + " from today's attendance.");
   }
 
+  // Used by drag-and-drop between room cards: moves an already-checked-in
+  // student to a different room, respecting that room's capacity (a manual
+  // move can't over-fill a room any more than automatic assignment can).
+  function moveCheckin(checkinId, targetRoomId) {
+    const entry = checkins.find((c) => c.id === checkinId);
+    if (!entry) return;
+    if (entry.roomId === targetRoomId) return; // dropped back where it started
+
+    const targetRoom = ROOMS.find((r) => r.id === targetRoomId);
+    if (!targetRoom) return;
+
+    if (countInRoom(targetRoomId) >= targetRoom.capacity) {
+      showToast("⚠️ " + targetRoom.name + " is full — can't move " + entry.name + " there.");
+      return;
+    }
+
+    const fromRoom = ROOMS.find((r) => r.id === entry.roomId);
+    entry.roomId = targetRoomId;
+    saveCheckins();
+    renderRosters();
+    showToast(entry.name + " moved to " + targetRoom.name + (fromRoom ? " from " + fromRoom.name : "") + ".");
+  }
+
   // ---------------------------------------------------------------------
   // Search / suggestions
   // ---------------------------------------------------------------------
@@ -445,6 +468,24 @@
       const card = document.createElement("div");
       card.className = "room-card";
 
+      // Drop target: dragging a student's roster row onto a different
+      // room card moves their check-in there (see moveCheckin).
+      card.addEventListener("dragenter", (e) => {
+        e.preventDefault(); // some browsers only allow drop if this is called too
+        card.classList.add("drop-target");
+      });
+      card.addEventListener("dragover", (e) => {
+        e.preventDefault(); // required to allow a drop at all
+        e.dataTransfer.dropEffect = "move";
+      });
+      card.addEventListener("dragleave", () => card.classList.remove("drop-target"));
+      card.addEventListener("drop", (e) => {
+        e.preventDefault();
+        card.classList.remove("drop-target");
+        const checkinId = e.dataTransfer.getData("text/plain");
+        if (checkinId) moveCheckin(checkinId, room.id);
+      });
+
       const header = document.createElement("div");
       header.className = "room-card-header";
       header.innerHTML =
@@ -470,6 +511,18 @@
       } else {
         entries.forEach((entry) => {
           const li = document.createElement("li");
+          li.draggable = true;
+          li.title = "Drag to another room to move this student";
+          li.addEventListener("dragstart", (e) => {
+            e.dataTransfer.setData("text/plain", entry.id);
+            e.dataTransfer.effectAllowed = "move";
+            // rAF so the drag image is captured before the style change —
+            // applying "dragging" synchronously makes some browsers drag a
+            // half-transparent ghost instead of the row's normal look.
+            requestAnimationFrame(() => li.classList.add("dragging"));
+          });
+          li.addEventListener("dragend", () => li.classList.remove("dragging"));
+
           const label = document.createElement("span");
           label.textContent = entry.name + (entry.walkin ? " (walk-in)" : "");
           const removeBtn = document.createElement("button");
