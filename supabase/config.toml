@@ -1,0 +1,16 @@
+# Supabase CLI project config.
+#
+# Not required for the GitHub -> Supabase migration-deploy integration to
+# apply supabase/migrations/*.sql on push (that reads the migrations folder
+# directly) -- this file is only needed if you use the Supabase CLI locally
+# (e.g. `supabase start`, `supabase db push`).
+#
+# Fill in project_id by running `supabase link --project-ref <your-project-ref>`
+# locally, or copy the ref from Project Settings -> General in the dashboard.
+project_id = "your-project-ref"
+
+[db]
+port = 54322
+
+[api]
+port = 54321

@@ -6,16 +6,18 @@
 <!--
   app-version: bump this (and the matching ?v= below) on every deploy.
   app.js polls this file for a version change so a browser tab left open
-  from a previous Monday picks up updates on its own — see checkForUpdate()
+  from a previous Monday picks up updates on its own -- see checkForUpdate()
   in app.js. Nothing else needs to change when you bump it.
 -->
-<meta name="app-version" content="5">
+<meta name="app-version" content="3">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>Monday Attendance</title>
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
+<div id="dbBanner" class="db-banner" hidden></div>
+
 <header class="app-header">
   <div class="title-block">
     <h1>Monday Attendance</h1>
@@ -39,7 +41,9 @@
     <p class="dialog-help">
       Paste the URL of your deployed Aeries sync proxy (see
       <code>aeries-proxy/README.md</code>) and the shared secret you set up
-      for it. This is saved only in this browser.
+      for it. These are saved only in this browser — every device needs its
+      own settings here, but a sync from any one of them updates the shared
+      roster (in Supabase) for everyone.
     </p>
     <label>Sync proxy URL
       <input id="aeriesWorkerUrl" type="url" placeholder="https://your-worker.workers.dev" required>
@@ -104,6 +108,8 @@
 
 <div id="toast" class="toast" hidden></div>
 
-<script src="app.js?v=5"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js?v=3"></script>
+<script src="app.js?v=3"></script>
 </body>
 </html>
