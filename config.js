@@ -7,5 +7,5 @@
 // This file is loaded by index.html before app.js. The anon key is safe to
 // ship in client-side code like this -- it only grants what the Row Level
 // Security policies in supabase/migrations allow.
-window.SUPABASE_URL = "https://YOUR-PROJECT-REF.supabase.co";
-window.SUPABASE_ANON_KEY = "YOUR-ANON-PUBLIC-KEY";
+window.SUPABASE_URL = "https://nddmaooujhpntgeoqaju.supabase.co";
+window.SUPABASE_ANON_KEY = "sb_publishable_0dFXIyqy_VYF6RDVfSWiYA_Ck9jIEC4";
