@@ -23,6 +23,21 @@ body {
   color: var(--text);
 }
 
+.db-banner {
+  background: #fff4e5;
+  color: #8a5300;
+  border-bottom: 1px solid #f5d8a8;
+  padding: 0.6rem 1.5rem;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.db-banner.error {
+  background: #fbeae8;
+  color: var(--danger);
+  border-bottom-color: #f3c9c3;
+}
+
 .app-header {
   display: flex;
   flex-wrap: wrap;
@@ -193,14 +208,6 @@ main {
   display: flex;
   flex-direction: column;
   min-height: 220px;
-  outline: 2px dashed transparent;
-  outline-offset: -2px;
-  transition: outline-color 0.15s ease, background-color 0.15s ease;
-}
-
-.room-card.drop-target {
-  outline-color: var(--primary);
-  background: #eef4ff;
 }
 
 .room-card-header {
@@ -223,30 +230,6 @@ main {
 .room-count.ok { color: var(--ok); }
 .room-count.warn { color: var(--warn); }
 .room-count.full { color: var(--full); }
-
-.teacher-input {
-  display: block;
-  width: 100%;
-  border: none;
-  border-bottom: 1px dashed var(--border);
-  background: transparent;
-  padding: 0.15rem 0;
-  margin-bottom: 0.6rem;
-  font-size: 0.85rem;
-  font-style: italic;
-  color: var(--muted);
-}
-
-.teacher-input:focus {
-  outline: none;
-  border-bottom: 1px solid var(--primary);
-  color: var(--text);
-}
-
-.teacher-input:not(:placeholder-shown) {
-  font-style: normal;
-  color: var(--text);
-}
 
 .progress-track {
   height: 8px;
@@ -281,11 +264,6 @@ main {
   padding: 0.35rem 0.1rem;
   border-bottom: 1px solid #f0f2f5;
   font-size: 0.95rem;
-  cursor: grab;
-}
-
-.roster-list li.dragging {
-  opacity: 0.4;
 }
 
 .roster-list .remove-btn {
@@ -318,65 +296,6 @@ main {
   font-size: 0.95rem;
   box-shadow: 0 8px 24px rgba(0,0,0,0.2);
   z-index: 50;
-}
-
-.aeries-dialog {
-  border: none;
-  border-radius: 12px;
-  padding: 1.5rem;
-  max-width: 420px;
-  width: 90vw;
-  box-shadow: 0 20px 50px rgba(20, 30, 40, 0.25);
-}
-
-.aeries-dialog::backdrop {
-  background: rgba(20, 30, 40, 0.45);
-}
-
-.aeries-dialog h2 {
-  margin: 0 0 0.5rem;
-  font-size: 1.15rem;
-}
-
-.aeries-dialog label {
-  display: block;
-  font-weight: 600;
-  font-size: 0.9rem;
-  margin: 0.9rem 0 0.3rem;
-}
-
-.aeries-dialog input[type="url"],
-.aeries-dialog input[type="password"],
-.aeries-dialog select {
-  width: 100%;
-  padding: 0.55rem 0.65rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 0.95rem;
-  font-weight: normal;
-  margin-top: 0.3rem;
-}
-
-.aeries-dialog .checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.aeries-dialog .checkbox-label input { width: auto; margin: 0; }
-
-.dialog-help {
-  color: var(--muted);
-  font-size: 0.85rem;
-  font-weight: normal;
-  margin: 0.4rem 0;
-}
-
-.dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
-  margin-top: 1.25rem;
 }
 
 @media (max-width: 600px) {

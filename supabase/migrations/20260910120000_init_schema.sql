@@ -1,0 +1,50 @@
+-- Monday Attendance: initial schema
+-- Students on the roster, and today's (and historical) check-in events.
+
+create extension if not exists pgcrypto;
+
+create table if not exists students (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  grade text not null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists checkins (
+  id uuid primary key default gen_random_uuid(),
+  student_id uuid references students(id) on delete set null,
+  name text not null,
+  grade text not null,
+  room_id text not null,
+  walkin boolean not null default false,
+  checked_in_at timestamptz not null default now(),
+  -- Set explicitly by the app to the check-in device's local calendar date,
+  -- so "today" always matches what the person checking students in sees on
+  -- screen, regardless of server/UTC time. Do NOT default this from now()/
+  -- current_date, which uses UTC and can drift a day off from local time.
+  check_date date not null
+);
+
+create index if not exists checkins_check_date_idx on checkins (check_date);
+create index if not exists checkins_room_id_idx on checkins (room_id);
+
+alter table students enable row level security;
+alter table checkins enable row level security;
+
+-- MVP policy: anyone holding the app's anon key (i.e. anyone who can load the
+-- page) can read and write. This is appropriate for a trusted internal tool
+-- with no login. Tighten with Supabase Auth + narrower policies if this ever
+-- needs to be internet-public or handle sensitive data.
+create policy "public read students" on students for select using (true);
+create policy "public insert students" on students for insert with check (true);
+create policy "public update students" on students for update using (true);
+create policy "public delete students" on students for delete using (true);
+
+create policy "public read checkins" on checkins for select using (true);
+create policy "public insert checkins" on checkins for insert with check (true);
+create policy "public delete checkins" on checkins for delete using (true);
+
+-- Realtime: broadcast changes on these tables so every open browser tab
+-- updates live as check-ins happen anywhere.
+alter publication supabase_realtime add table checkins;
+alter publication supabase_realtime add table students;

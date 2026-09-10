@@ -1,10 +1,9 @@
 /*
  * Monday Attendance
  *
- * A single-device, no-backend attendance checker for a Monday school program.
- * Everything lives in the browser's localStorage, so it's meant to run on the
- * one laptop at the check-in table. See README.md for setup, roster format,
- * and notes on multi-device use.
+ * Attendance checker for a Monday school program, backed by Supabase so the
+ * roster and today's check-ins stay in sync live across every device running
+ * this page (e.g. multiple check-in tables). See README.md for setup.
  */
 
 (function () {
@@ -69,28 +68,37 @@
     { name: "Abigail Reed", grade: "8" },
   ];
 
-  const STORAGE_ROSTER_KEY = "mondayAttendance.roster.v1";
-  const STORAGE_CHECKIN_PREFIX = "mondayAttendance.checkins.v1.";
-  const STORAGE_AERIES_CONFIG_KEY = "mondayAttendance.aeriesConfig.v1";
-  const STORAGE_TEACHERS_KEY = "mondayAttendance.teachers.v1";
-  const AERIES_SYNC_TIMEOUT_MS = 15000;
+  const NIL_UUID = "00000000-0000-0000-0000-000000000000";
+
+  // ---------------------------------------------------------------------
+  // Supabase client
+  // ---------------------------------------------------------------------
+
+  const SUPABASE_URL = window.SUPABASE_URL || "";
+  const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || "";
+  const isConfigured = Boolean(
+    SUPABASE_URL &&
+    SUPABASE_ANON_KEY &&
+    !SUPABASE_URL.includes("YOUR-PROJECT") &&
+    !SUPABASE_ANON_KEY.includes("YOUR-ANON")
+  );
+  const hasClientLib = typeof window.supabase !== "undefined" && typeof window.supabase.createClient === "function";
+  const db = (isConfigured && hasClientLib) ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
   // ---------------------------------------------------------------------
   // State
   // ---------------------------------------------------------------------
 
-  let roster = loadRoster(); // [{ id, name, grade }]
-  let checkins = loadCheckins(); // [{ id, studentId, name, grade, roomId, time, walkin }]
+  let roster = []; // [{ id, name, grade }]
+  let checkins = []; // [{ id, studentId, name, grade, roomId, time, walkin }]
   let activeSuggestionIndex = -1;
-  let aeriesConfig = loadAeriesConfig(); // { workerUrl, sharedSecret, autoRefreshEnabled, autoRefreshMinutes, lastSyncedAt }
-  let teachers = loadTeachers(); // { [roomId]: teacherName } — persists like the roster, untouched by Reset Today
-  let aeriesTimer = null;
 
   // ---------------------------------------------------------------------
   // DOM refs
   // ---------------------------------------------------------------------
 
   const el = {
+    dbBanner: document.getElementById("dbBanner"),
     todayLabel: document.getElementById("todayLabel"),
     searchInput: document.getElementById("searchInput"),
     suggestions: document.getElementById("suggestions"),
@@ -106,20 +114,10 @@
     walkinGrade: document.getElementById("walkinGrade"),
     walkinDetails: document.getElementById("walkinDetails"),
     toast: document.getElementById("toast"),
-    syncAeriesBtn: document.getElementById("syncAeriesBtn"),
-    aeriesSettingsBtn: document.getElementById("aeriesSettingsBtn"),
-    aeriesSettingsDialog: document.getElementById("aeriesSettingsDialog"),
-    aeriesSettingsForm: document.getElementById("aeriesSettingsForm"),
-    aeriesSettingsCancel: document.getElementById("aeriesSettingsCancel"),
-    aeriesWorkerUrl: document.getElementById("aeriesWorkerUrl"),
-    aeriesSharedSecret: document.getElementById("aeriesSharedSecret"),
-    aeriesAutoRefresh: document.getElementById("aeriesAutoRefresh"),
-    aeriesRefreshMinutes: document.getElementById("aeriesRefreshMinutes"),
-    aeriesLastSynced: document.getElementById("aeriesLastSynced"),
   };
 
   // ---------------------------------------------------------------------
-  // Date / storage helpers
+  // Date helpers
   // ---------------------------------------------------------------------
 
   function todayKey() {
@@ -129,73 +127,6 @@
 
   function pad(n) {
     return n < 10 ? "0" + n : String(n);
-  }
-
-  function checkinStorageKey() {
-    return STORAGE_CHECKIN_PREFIX + todayKey();
-  }
-
-  function loadRoster() {
-    try {
-      const raw = localStorage.getItem(STORAGE_ROSTER_KEY);
-      return raw ? JSON.parse(raw) : [];
-    } catch (e) {
-      console.error("Failed to load roster", e);
-      return [];
-    }
-  }
-
-  function saveRoster() {
-    localStorage.setItem(STORAGE_ROSTER_KEY, JSON.stringify(roster));
-  }
-
-  function loadTeachers() {
-    try {
-      const raw = localStorage.getItem(STORAGE_TEACHERS_KEY);
-      return raw ? JSON.parse(raw) : {};
-    } catch (e) {
-      console.error("Failed to load teacher names", e);
-      return {};
-    }
-  }
-
-  function saveTeachers() {
-    localStorage.setItem(STORAGE_TEACHERS_KEY, JSON.stringify(teachers));
-  }
-
-  function loadCheckins() {
-    try {
-      const raw = localStorage.getItem(checkinStorageKey());
-      return raw ? JSON.parse(raw) : [];
-    } catch (e) {
-      console.error("Failed to load today's check-ins", e);
-      return [];
-    }
-  }
-
-  function saveCheckins() {
-    localStorage.setItem(checkinStorageKey(), JSON.stringify(checkins));
-  }
-
-  function loadAeriesConfig() {
-    const defaults = {
-      workerUrl: "",
-      sharedSecret: "",
-      autoRefreshEnabled: false,
-      autoRefreshMinutes: 15,
-      lastSyncedAt: null,
-    };
-    try {
-      const raw = localStorage.getItem(STORAGE_AERIES_CONFIG_KEY);
-      return raw ? Object.assign(defaults, JSON.parse(raw)) : defaults;
-    } catch (e) {
-      console.error("Failed to load Aeries sync settings", e);
-      return defaults;
-    }
-  }
-
-  function saveAeriesConfig() {
-    localStorage.setItem(STORAGE_AERIES_CONFIG_KEY, JSON.stringify(aeriesConfig));
   }
 
   function normalizeGrade(raw) {
@@ -209,52 +140,86 @@
   }
 
   // ---------------------------------------------------------------------
-  // Roster (student list) management
+  // Row <-> app-state mapping
   // ---------------------------------------------------------------------
 
-  // `opts.stableIds` is used for Aeries syncs: Aeries hands back a durable
-  // per-student id, and reusing it (instead of regenerating index+name-slug
-  // ids) means a student who's already checked in today stays matched to
-  // their check-in across roster re-syncs, even if the Aeries order changes.
-  function setRoster(students, opts) {
-    opts = opts || {};
-    roster = students.map((s, i) => {
-      // Aeries hands back first/last name as separate fields (used as-is,
-      // for the export's Last Name/First Name columns); a CSV/sample
-      // roster only ever has one combined "Name" column, so fall back to
-      // splitting that — see splitName's own comment for the tradeoff.
-      const hasSeparateNames = typeof s.firstName === "string" || typeof s.lastName === "string";
-      const { firstName, lastName } = hasSeparateNames
-        ? { firstName: s.firstName || "", lastName: s.lastName || "" }
-        : splitName(s.name);
-      return {
-        id: opts.stableIds ? "aeries-" + String(s.id) : "s" + i + "-" + slug(s.name),
-        name: s.name,
-        firstName,
-        lastName,
-        grade: normalizeGrade(s.grade),
-      };
-    });
-    saveRoster();
+  function mapStudentRow(row) {
+    return { id: row.id, name: row.name, grade: row.grade };
+  }
+
+  function mapCheckinRow(row) {
+    return {
+      id: row.id,
+      studentId: row.student_id,
+      name: row.name,
+      grade: row.grade,
+      roomId: row.room_id,
+      time: row.checked_in_at,
+      walkin: row.walkin,
+    };
+  }
+
+  // ---------------------------------------------------------------------
+  // Loading from Supabase
+  // ---------------------------------------------------------------------
+
+  async function loadRoster() {
+    if (!db) {
+      roster = [];
+      return;
+    }
+    const { data, error } = await db.from("students").select("*").order("name", { ascending: true });
+    if (error) {
+      console.error("Failed to load roster", error);
+      showToast("Couldn't load roster: " + error.message);
+      return;
+    }
+    roster = (data || []).map(mapStudentRow);
+  }
+
+  async function loadCheckins() {
+    if (!db) {
+      checkins = [];
+      return;
+    }
+    const { data, error } = await db
+      .from("checkins")
+      .select("*")
+      .eq("check_date", todayKey())
+      .order("checked_in_at", { ascending: true });
+    if (error) {
+      console.error("Failed to load today's check-ins", error);
+      showToast("Couldn't load today's check-ins: " + error.message);
+      return;
+    }
+    checkins = (data || []).map(mapCheckinRow);
+  }
+
+  async function setRoster(students) {
+    if (!db) {
+      showToast("Connect Supabase first — see config.js.");
+      return;
+    }
+    const rows = students
+      .map((s) => ({ name: String(s.name).trim(), grade: normalizeGrade(s.grade) }))
+      .filter((s) => s.name);
+
+    const { error: delErr } = await db.from("students").delete().neq("id", NIL_UUID);
+    if (delErr) {
+      console.error(delErr);
+      showToast("Couldn't clear the old roster: " + delErr.message);
+      return;
+    }
+    if (rows.length > 0) {
+      const { error: insErr } = await db.from("students").insert(rows);
+      if (insErr) {
+        console.error(insErr);
+        showToast("Couldn't save the new roster: " + insErr.message);
+        return;
+      }
+    }
+    await loadRoster();
     renderAll();
-  }
-
-  function slug(name) {
-    return String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
-  }
-
-  // Best-effort split of a single combined "First Last" string, for sources
-  // that only ever give us one name field (CSV upload, the sample roster,
-  // walk-ins). Splits at the FIRST space, so a multi-word last name like
-  // "Ruben Reyes Jr." (First: Ruben, Last: Reyes Jr.) comes out right; a
-  // multi-word first name would not (there's no way to tell those apart
-  // from a combined string alone). Aeries-synced students bypass this
-  // entirely since Aeries gives first/last as separate fields already.
-  function splitName(fullName) {
-    const trimmed = String(fullName || "").trim();
-    const firstSpace = trimmed.indexOf(" ");
-    if (firstSpace === -1) return { firstName: trimmed, lastName: "" };
-    return { firstName: trimmed.slice(0, firstSpace), lastName: trimmed.slice(firstSpace + 1) };
   }
 
   function parseCsv(text) {
@@ -275,78 +240,6 @@
       if (name) students.push({ name, grade });
     }
     return students;
-  }
-
-  // ---------------------------------------------------------------------
-  // Aeries live sync
-  // ---------------------------------------------------------------------
-  //
-  // Talks to the small proxy in aeries-proxy/ (see its README), which holds
-  // the real Aeries credentials server-side. This app only ever calls that
-  // proxy's GET /roster endpoint and expects { roster: [{id,name,grade}] }.
-  // A failed sync leaves the current roster and today's check-ins untouched
-  // — it never wipes data on error.
-
-  async function syncFromAeries(opts) {
-    opts = opts || {};
-    if (!aeriesConfig.workerUrl) {
-      if (!opts.silent) showToast("Set up Aeries sync in ⚙️ Aeries Settings first.");
-      return;
-    }
-
-    const endpoint = aeriesConfig.workerUrl.replace(/\/$/, "") + "/roster";
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), AERIES_SYNC_TIMEOUT_MS);
-
-    try {
-      const res = await fetch(endpoint, {
-        headers: aeriesConfig.sharedSecret ? { "X-App-Secret": aeriesConfig.sharedSecret } : {},
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        let detail = "";
-        try {
-          detail = (await res.json()).error || "";
-        } catch (e) {
-          // response wasn't JSON; ignore and use the status alone
-        }
-        throw new Error("Sync proxy returned " + res.status + (detail ? " (" + detail + ")" : ""));
-      }
-      const data = await res.json();
-      if (!data || !Array.isArray(data.roster)) {
-        throw new Error("Unexpected response from sync proxy");
-      }
-
-      setRoster(data.roster, { stableIds: true });
-      aeriesConfig.lastSyncedAt = new Date().toISOString();
-      saveAeriesConfig();
-      renderAeriesStatus();
-      if (!opts.silent) showToast("✅ Synced " + data.roster.length + " students from Aeries.");
-    } catch (err) {
-      const message = err.name === "AbortError" ? "Sync proxy timed out" : err.message;
-      console.error("Aeries sync failed", err);
-      if (!opts.silent) showToast("⚠️ Aeries sync failed: " + message);
-    } finally {
-      clearTimeout(timeoutId);
-    }
-  }
-
-  function scheduleAeriesAutoRefresh() {
-    if (aeriesTimer) {
-      clearInterval(aeriesTimer);
-      aeriesTimer = null;
-    }
-    if (aeriesConfig.autoRefreshEnabled && aeriesConfig.workerUrl) {
-      const ms = Math.max(1, Number(aeriesConfig.autoRefreshMinutes) || 15) * 60 * 1000;
-      aeriesTimer = setInterval(() => syncFromAeries({ silent: true }), ms);
-    }
-  }
-
-  function renderAeriesStatus() {
-    if (!el.aeriesLastSynced) return;
-    el.aeriesLastSynced.textContent = aeriesConfig.lastSyncedAt
-      ? "Last synced: " + new Date(aeriesConfig.lastSyncedAt).toLocaleString()
-      : "Never synced yet.";
   }
 
   // ---------------------------------------------------------------------
@@ -371,7 +264,11 @@
     return null;
   }
 
-  function checkInStudent(student) {
+  async function checkInStudent(student) {
+    if (!db) {
+      showToast("Connect Supabase first — see config.js.");
+      return;
+    }
     if (student.id && isCheckedIn(student.id)) {
       showStatus(student.name + " is already checked in today.", "error");
       return;
@@ -386,61 +283,96 @@
       showToast("⚠️ All rooms full for " + gradeLabel);
       return;
     }
-    // A roster match already carries firstName/lastName (see setRoster); a
-    // walk-in only ever has the one combined name field the form collects,
-    // so fall back to splitting it the same way setRoster does.
-    const hasSeparateNames = typeof student.firstName === "string" || typeof student.lastName === "string";
-    const { firstName, lastName } = hasSeparateNames
-      ? { firstName: student.firstName || "", lastName: student.lastName || "" }
-      : splitName(student.name);
 
-    checkins.push({
-      id: "c" + Date.now() + "-" + Math.random().toString(36).slice(2, 7),
-      studentId: student.id || null,
-      name: student.name,
-      firstName,
-      lastName,
-      grade: student.grade,
-      roomId: room.id,
-      time: new Date().toISOString(),
-      walkin: !!student.walkin,
-    });
-    saveCheckins();
+    const { data, error } = await db
+      .from("checkins")
+      .insert({
+        student_id: student.id || null,
+        name: student.name,
+        grade: student.grade,
+        room_id: room.id,
+        walkin: !!student.walkin,
+        // Set explicitly from the browser's local date so "today" always
+        // matches what's on screen, regardless of the server's timezone.
+        check_date: todayKey(),
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error(error);
+      showStatus("Couldn't check in " + student.name + ": " + error.message, "error");
+      return;
+    }
+
+    if (!checkins.some((c) => c.id === data.id)) {
+      checkins.push(mapCheckinRow(data));
+    }
     showStatus(student.name + " checked in to " + room.name + ".", "success");
     showToast("✅ " + student.name + " → " + room.name);
     renderRosters();
     clearSearch();
   }
 
-  function removeCheckin(checkinId) {
+  async function removeCheckin(checkinId) {
     const entry = checkins.find((c) => c.id === checkinId);
+    if (!db || !entry) return;
     checkins = checkins.filter((c) => c.id !== checkinId);
-    saveCheckins();
     renderRosters();
-    if (entry) showToast("Removed " + entry.name + " from today's attendance.");
-  }
 
-  // Used by drag-and-drop between room cards: moves an already-checked-in
-  // student to a different room, respecting that room's capacity (a manual
-  // move can't over-fill a room any more than automatic assignment can).
-  function moveCheckin(checkinId, targetRoomId) {
-    const entry = checkins.find((c) => c.id === checkinId);
-    if (!entry) return;
-    if (entry.roomId === targetRoomId) return; // dropped back where it started
-
-    const targetRoom = ROOMS.find((r) => r.id === targetRoomId);
-    if (!targetRoom) return;
-
-    if (countInRoom(targetRoomId) >= targetRoom.capacity) {
-      showToast("⚠️ " + targetRoom.name + " is full — can't move " + entry.name + " there.");
+    const { error } = await db.from("checkins").delete().eq("id", checkinId);
+    if (error) {
+      console.error(error);
+      showToast("Couldn't remove " + entry.name + ": " + error.message);
+      await loadCheckins();
+      renderRosters();
       return;
     }
+    showToast("Removed " + entry.name + " from today's attendance.");
+  }
 
-    const fromRoom = ROOMS.find((r) => r.id === entry.roomId);
-    entry.roomId = targetRoomId;
-    saveCheckins();
-    renderRosters();
-    showToast(entry.name + " moved to " + targetRoom.name + (fromRoom ? " from " + fromRoom.name : "") + ".");
+  // ---------------------------------------------------------------------
+  // Realtime — keep every open browser tab in sync
+  // ---------------------------------------------------------------------
+
+  function subscribeRealtime() {
+    if (!db) return;
+
+    db.channel("checkins-live")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "checkins" },
+        (payload) => {
+          if (payload.new.check_date !== todayKey()) return;
+          if (!checkins.some((c) => c.id === payload.new.id)) {
+            checkins.push(mapCheckinRow(payload.new));
+            renderRosters();
+          }
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "checkins" },
+        (payload) => {
+          const before = checkins.length;
+          checkins = checkins.filter((c) => c.id !== payload.old.id);
+          if (checkins.length !== before) renderRosters();
+        }
+      )
+      .subscribe();
+
+    db.channel("students-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "students" },
+        () => {
+          loadRoster().then(() => {
+            renderAll();
+            renderSuggestions(getMatches(el.searchInput.value));
+          });
+        }
+      )
+      .subscribe();
   }
 
   // ---------------------------------------------------------------------
@@ -503,6 +435,23 @@
     }, 2200);
   }
 
+  function updateDbBanner() {
+    if (!el.dbBanner) return;
+    if (!hasClientLib) {
+      el.dbBanner.textContent =
+        "Couldn't load the Supabase library — check your internet connection and reload.";
+      el.dbBanner.className = "db-banner error";
+      el.dbBanner.hidden = false;
+    } else if (!isConfigured) {
+      el.dbBanner.textContent =
+        "Supabase isn't connected yet — add your project URL and anon key to config.js, then reload.";
+      el.dbBanner.className = "db-banner";
+      el.dbBanner.hidden = false;
+    } else {
+      el.dbBanner.hidden = true;
+    }
+  }
+
   // ---------------------------------------------------------------------
   // Rendering
   // ---------------------------------------------------------------------
@@ -520,45 +469,12 @@
       const card = document.createElement("div");
       card.className = "room-card";
 
-      // Drop target: dragging a student's roster row onto a different
-      // room card moves their check-in there (see moveCheckin).
-      card.addEventListener("dragenter", (e) => {
-        e.preventDefault(); // some browsers only allow drop if this is called too
-        card.classList.add("drop-target");
-      });
-      card.addEventListener("dragover", (e) => {
-        e.preventDefault(); // required to allow a drop at all
-        e.dataTransfer.dropEffect = "move";
-      });
-      card.addEventListener("dragleave", () => card.classList.remove("drop-target"));
-      card.addEventListener("drop", (e) => {
-        e.preventDefault();
-        card.classList.remove("drop-target");
-        const checkinId = e.dataTransfer.getData("text/plain");
-        if (checkinId) moveCheckin(checkinId, room.id);
-      });
-
       const header = document.createElement("div");
       header.className = "room-card-header";
       header.innerHTML =
         "<h2>" + room.name + "</h2>" +
         '<span class="room-count ' + level + '">' + count + " / " + room.capacity + "</span>";
       card.appendChild(header);
-
-      const teacherInput = document.createElement("input");
-      teacherInput.type = "text";
-      teacherInput.className = "teacher-input";
-      teacherInput.placeholder = "Teacher name";
-      teacherInput.value = teachers[room.id] || "";
-      teacherInput.setAttribute("aria-label", room.name + " teacher name");
-      // Saved on every keystroke (not just on blur) so an in-progress edit
-      // survives even if something else (e.g. an Aeries auto-refresh)
-      // triggers a re-render while someone is mid-type.
-      teacherInput.addEventListener("input", () => {
-        teachers[room.id] = teacherInput.value;
-        saveTeachers();
-      });
-      card.appendChild(teacherInput);
 
       const track = document.createElement("div");
       track.className = "progress-track";
@@ -578,18 +494,6 @@
       } else {
         entries.forEach((entry) => {
           const li = document.createElement("li");
-          li.draggable = true;
-          li.title = "Drag to another room to move this student";
-          li.addEventListener("dragstart", (e) => {
-            e.dataTransfer.setData("text/plain", entry.id);
-            e.dataTransfer.effectAllowed = "move";
-            // rAF so the drag image is captured before the style change —
-            // applying "dragging" synchronously makes some browsers drag a
-            // half-transparent ghost instead of the row's normal look.
-            requestAnimationFrame(() => li.classList.add("dragging"));
-          });
-          li.addEventListener("dragend", () => li.classList.remove("dragging"));
-
           const label = document.createElement("span");
           label.textContent = entry.name + (entry.walkin ? " (walk-in)" : "");
           const removeBtn = document.createElement("button");
@@ -619,36 +523,18 @@
   // Export
   // ---------------------------------------------------------------------
 
-  // Aeries-synced students carry a real district Student ID (prefixed
-  // "aeries-" internally so it can't collide with CSV/sample-roster ids —
-  // see setRoster's stableIds option). CSV-uploaded, sample-roster, and
-  // walk-in students don't have a real district ID to report, so those
-  // export with a blank Student ID rather than a made-up internal one.
-  function studentIdForExport(entry) {
-    if (entry.studentId && entry.studentId.startsWith("aeries-")) {
-      return entry.studentId.slice("aeries-".length);
-    }
-    return "";
-  }
-
   function exportCsv() {
-    const rows = [["Student ID", "Last Name", "First Name", "Grade", "Teacher"]];
+    const roomsById = Object.fromEntries(ROOMS.map((r) => [r.id, r.name]));
+    const rows = [["Name", "Grade", "Room", "Check-in Time"]];
     checkins
       .slice()
-      .sort((a, b) => {
-        const teacherA = teachers[a.roomId] || "";
-        const teacherB = teachers[b.roomId] || "";
-        // Group rows by teacher; within the same teacher, keep the original
-        // check-in-time order rather than an arbitrary one.
-        return teacherA.localeCompare(teacherB) || new Date(a.time) - new Date(b.time);
-      })
+      .sort((a, b) => new Date(a.time) - new Date(b.time))
       .forEach((c) => {
         rows.push([
-          studentIdForExport(c),
-          c.lastName || "",
-          c.firstName || "",
+          c.name,
           GRADE_LABELS[c.grade] || c.grade,
-          teachers[c.roomId] || "",
+          roomsById[c.roomId] || c.roomId,
+          new Date(c.time).toLocaleTimeString(),
         ]);
       });
     const csv = rows.map((r) => r.map(csvEscape).join(",")).join("\r\n");
@@ -703,51 +589,27 @@
     }
   });
 
-  el.syncAeriesBtn.addEventListener("click", () => syncFromAeries());
-
-  el.aeriesSettingsBtn.addEventListener("click", () => {
-    el.aeriesWorkerUrl.value = aeriesConfig.workerUrl || "";
-    el.aeriesSharedSecret.value = aeriesConfig.sharedSecret || "";
-    el.aeriesAutoRefresh.checked = !!aeriesConfig.autoRefreshEnabled;
-    el.aeriesRefreshMinutes.value = String(aeriesConfig.autoRefreshMinutes || 15);
-    renderAeriesStatus();
-    el.aeriesSettingsDialog.showModal();
-  });
-
-  el.aeriesSettingsCancel.addEventListener("click", () => el.aeriesSettingsDialog.close());
-
-  el.aeriesSettingsForm.addEventListener("submit", () => {
-    aeriesConfig.workerUrl = el.aeriesWorkerUrl.value.trim();
-    aeriesConfig.sharedSecret = el.aeriesSharedSecret.value;
-    aeriesConfig.autoRefreshEnabled = el.aeriesAutoRefresh.checked;
-    aeriesConfig.autoRefreshMinutes = Number(el.aeriesRefreshMinutes.value);
-    saveAeriesConfig();
-    scheduleAeriesAutoRefresh();
-    showToast("Aeries sync settings saved.");
-    if (aeriesConfig.workerUrl) syncFromAeries();
-  });
-
   el.uploadRosterBtn.addEventListener("click", () => el.csvFile.click());
 
   el.csvFile.addEventListener("change", () => {
     const file = el.csvFile.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const students = parseCsv(String(reader.result));
       if (students.length === 0) {
         showToast("That CSV didn't have any usable rows (expected Name, Grade columns).");
         return;
       }
-      setRoster(students);
+      await setRoster(students);
       showToast("Loaded " + students.length + " students from " + file.name);
     };
     reader.readAsText(file);
     el.csvFile.value = "";
   });
 
-  el.sampleRosterBtn.addEventListener("click", () => {
-    setRoster(SAMPLE_ROSTER);
+  el.sampleRosterBtn.addEventListener("click", async () => {
+    await setRoster(SAMPLE_ROSTER);
     showToast("Loaded the sample demo roster (" + SAMPLE_ROSTER.length + " students).");
   });
 
@@ -759,77 +621,50 @@
     exportCsv();
   });
 
-  el.resetBtn.addEventListener("click", () => {
+  el.resetBtn.addEventListener("click", async () => {
+    if (!db) {
+      showToast("Connect Supabase first — see config.js.");
+      return;
+    }
     if (checkins.length === 0) {
       showToast("Today's attendance is already empty.");
       return;
     }
-    if (confirm("Clear all of today's check-ins? This cannot be undone.")) {
-      checkins = [];
-      saveCheckins();
+    if (!confirm("Clear all of today's check-ins? This cannot be undone.")) return;
+
+    checkins = [];
+    renderRosters();
+    const { error } = await db.from("checkins").delete().eq("check_date", todayKey());
+    if (error) {
+      console.error(error);
+      showToast("Couldn't reset: " + error.message);
+      await loadCheckins();
       renderRosters();
-      showToast("Today's attendance has been reset.");
+      return;
     }
+    showToast("Today's attendance has been reset.");
   });
 
-  el.walkinForm.addEventListener("submit", (e) => {
+  el.walkinForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const name = el.walkinName.value.trim();
     const grade = normalizeGrade(el.walkinGrade.value);
     if (!name || !grade) return;
-    checkInStudent({ name, grade, walkin: true });
+    await checkInStudent({ name, grade, walkin: true });
     el.walkinForm.reset();
     el.walkinDetails.open = false;
-  });
-
-  // ---------------------------------------------------------------------
-  // Update detection
-  // ---------------------------------------------------------------------
-  //
-  // This is meant to run unattended on one laptop, possibly with the tab
-  // left open across multiple Mondays — normal browser caching won't pick
-  // up a new deploy for a tab that's never re-navigated. So instead of
-  // relying on cache headers alone, periodically re-fetch index.html with
-  // caching explicitly disabled and compare its <meta name="app-version">
-  // against the version this page loaded with; a mismatch means a newer
-  // version has been deployed, so reload to pick it up.
-
-  const CURRENT_APP_VERSION = document.querySelector('meta[name="app-version"]').content;
-  const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
-
-  async function checkForUpdate() {
-    try {
-      const res = await fetch("index.html?_=" + Date.now(), { cache: "no-store" });
-      if (!res.ok) return;
-      const html = await res.text();
-      const match = html.match(/<meta\s+name=["']app-version["']\s+content=["']([^"']+)["']/i);
-      const latestVersion = match && match[1];
-      if (latestVersion && latestVersion !== CURRENT_APP_VERSION) {
-        showToast("Updating to the latest version…");
-        setTimeout(() => location.reload(), 1500);
-      }
-    } catch (e) {
-      // Offline or the network hiccuped — not worth bothering anyone about;
-      // it'll just check again next time.
-      console.error("Update check failed", e);
-    }
-  }
-
-  setInterval(checkForUpdate, UPDATE_CHECK_INTERVAL_MS);
-  // Also check right when the tab regains focus/visibility — the common
-  // case of someone waking the laptop or switching back after a while.
-  document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) checkForUpdate();
   });
 
   // ---------------------------------------------------------------------
   // Init
   // ---------------------------------------------------------------------
 
-  renderAll();
-  renderAeriesStatus();
-  scheduleAeriesAutoRefresh();
-  if (aeriesConfig.autoRefreshEnabled && aeriesConfig.workerUrl) {
-    syncFromAeries({ silent: true });
+  async function init() {
+    updateDbBanner();
+    await Promise.all([loadRoster(), loadCheckins()]);
+    renderAll();
+    subscribeRealtime();
   }
+
+  init();
 })();
