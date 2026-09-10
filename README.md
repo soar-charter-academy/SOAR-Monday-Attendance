@@ -60,13 +60,15 @@ Supabase isn't connected yet) should disappear.
 If you already ran an earlier version of this migration by hand (e.g. via
 the SQL Editor), the `create table if not exists` statements will just
 no-op — re-run the file and it'll pick up whatever it's missing (the
-`checkins` update policy drag-and-drop needs, and/or the unique index on
-`student_id` that Aeries sync needs).
+`checkins` update policy drag-and-drop needs, the unique index on
+`student_id` Aeries sync needs, and/or the `room_teachers` table live
+teacher names need).
 
-The schema is two tables:
+The schema is three tables:
 - `students` — the uploaded roster (Student ID, last name, first name, grade).
 - `checkins` — today's (and every previous day's) check-in events, each
   tied to a room and timestamp.
+- `room_teachers` — one row per room, holding whoever's running it today.
 
 Both have Row Level Security enabled with an open "anyone with the anon key
 can read/write" policy — appropriate for a trusted internal tool with no
@@ -155,10 +157,10 @@ can't strand or double up someone who's already been checked in.
 
 Each room card also has a small **Teacher name** field. Whatever's typed
 there is included as the Teacher column on export — handy for handing a
-room's list straight to that teacher. Unlike the roster and check-ins,
-teacher names are a per-browser convenience stored in that device's
-localStorage rather than in Supabase, so they aren't shared live across
-devices — each check-in table sets its own room's teacher name once.
+room's list straight to that teacher. Teacher names live in Supabase too,
+same as the roster and check-ins, so typing one in on any device shows up
+live on every other one — set it once on whichever device is at that room,
+and everyone else's screen (and CSV export) picks it up automatically.
 
 ## Running it
 
@@ -181,9 +183,9 @@ when it sees one — nothing else needs to change when you bump it.
 
 ## Data & privacy notes
 
-- Roster and attendance data live in Supabase (Postgres), shared across
-  every device that loads the app — this is what makes the live rosters
-  work across multiple check-in tables.
+- Roster, attendance, and teacher-name data all live in Supabase (Postgres),
+  shared across every device that loads the app — this is what makes the
+  live rosters work across multiple check-in tables.
 - The app uses Supabase's public **anon key** with open read/write
   policies, appropriate for a trusted internal tool with no login screen.
   Don't point this app at a Supabase project that also holds sensitive
@@ -211,7 +213,7 @@ app.js                        App logic: Supabase reads/writes, realtime sync, s
                                Aeries sync + auto-refresh
 sample-roster.csv             Template / demo roster (Student ID, Last Name, First Name, Grade)
 supabase/config.toml           Supabase CLI project config (optional, for local dev)
-supabase/migrations/*.sql      Database schema (students, checkins tables + policies)
+supabase/migrations/*.sql      Database schema (students, checkins, room_teachers tables + policies)
 aeries-proxy/                 Optional Cloudflare Worker that proxies Aeries API
                                requests so the app never holds the Aeries API key
                                directly — see aeries-proxy/README.md

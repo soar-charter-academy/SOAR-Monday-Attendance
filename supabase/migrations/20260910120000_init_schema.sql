@@ -1,5 +1,6 @@
 -- Monday Attendance: initial schema
--- Students on the roster, and today's (and historical) check-in events.
+-- Students on the roster, today's (and historical) check-in events, and
+-- each room's teacher name.
 
 create extension if not exists pgcrypto;
 
@@ -36,6 +37,15 @@ create table if not exists checkins (
   check_date date not null
 );
 
+-- One row per room, holding whoever's running it today. app.js's ROOMS
+-- constant is the list of valid room_id values; there's no FK here since
+-- ROOMS lives in code, not a table.
+create table if not exists room_teachers (
+  room_id text primary key,
+  teacher_name text not null default '',
+  updated_at timestamptz not null default now()
+);
+
 -- Partial (not full) unique index: only enforced where student_id is set,
 -- so multiple CSV-uploaded/walk-in rows with no district ID can all have a
 -- null student_id without colliding. This is also what lets an Aeries
@@ -49,6 +59,7 @@ create index if not exists checkins_room_id_idx on checkins (room_id);
 
 alter table students enable row level security;
 alter table checkins enable row level security;
+alter table room_teachers enable row level security;
 
 -- MVP policy: anyone holding the app's anon key (i.e. anyone who can load the
 -- page) can read and write. This is appropriate for a trusted internal tool
@@ -66,7 +77,14 @@ create policy "public insert checkins" on checkins for insert with check (true);
 create policy "public update checkins" on checkins for update using (true) with check (true);
 create policy "public delete checkins" on checkins for delete using (true);
 
+-- No delete policy: a cleared teacher name is saved as an empty string
+-- (see saveTeacherName in app.js), never removed.
+create policy "public read room_teachers" on room_teachers for select using (true);
+create policy "public insert room_teachers" on room_teachers for insert with check (true);
+create policy "public update room_teachers" on room_teachers for update using (true) with check (true);
+
 -- Realtime: broadcast changes on these tables so every open browser tab
 -- updates live as check-ins happen anywhere.
 alter publication supabase_realtime add table checkins;
 alter publication supabase_realtime add table students;
+alter publication supabase_realtime add table room_teachers;

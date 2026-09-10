@@ -70,19 +70,18 @@
 
   const NIL_UUID = "00000000-0000-0000-0000-000000000000";
 
-  // Per-room teacher names are a lightweight, purely local UI convenience —
-  // stored in this browser's localStorage rather than Supabase, so they
-  // aren't synced across devices. Each check-in table sets its own room's
-  // teacher name once and it's just along for the ride into CSV exports.
-  const STORAGE_TEACHERS_KEY = "mondayAttendance.teachers.v1";
+  // Per-room teacher names live in Supabase (room_teachers) like everything
+  // else, so they show up live on every device -- saves are debounced (see
+  // saveTeacherName) rather than firing on every keystroke.
+  const TEACHER_SAVE_DEBOUNCE_MS = 500;
 
-  // Aeries sync settings (proxy URL + shared secret) are also per-browser
-  // localStorage, but for a different reason than teacher names: the shared
-  // secret is a credential, and students/checkins are readable by anyone
-  // holding the app's anon key (see the migration's RLS policies) -- storing
-  // it in Supabase would hand it to every viewer. A sync triggered from any
-  // one configured device still updates the shared Supabase roster for
-  // everyone, same as a CSV upload would.
+  // Aeries sync settings (proxy URL + shared secret) are per-browser
+  // localStorage, unlike the roster/check-ins/teacher names above: the
+  // shared secret is a credential, and students/checkins/room_teachers are
+  // readable by anyone holding the app's anon key (see the migration's RLS
+  // policies) -- storing it in Supabase would hand it to every viewer. A
+  // sync triggered from any one configured device still updates the shared
+  // Supabase roster for everyone, same as a CSV upload would.
   const STORAGE_AERIES_CONFIG_KEY = "mondayAttendance.aeriesConfig.v1";
   const AERIES_SYNC_TIMEOUT_MS = 15000;
 
@@ -108,7 +107,8 @@
   let roster = []; // [{ id, studentId, firstName, lastName, grade }]
   let checkins = []; // [{ id, studentId, aeriesStudentId, firstName, lastName, grade, roomId, time, walkin }]
   let activeSuggestionIndex = -1;
-  let teachers = loadTeachers(); // { [roomId]: teacherName }
+  let teachers = {}; // { [roomId]: teacherName } -- loaded from Supabase, kept live via realtime
+  let teacherSaveTimers = {}; // { [roomId]: timeoutId } -- debounces saveTeacherName's writes
   let aeriesConfig = loadAeriesConfig(); // { workerUrl, sharedSecret, autoRefreshEnabled, autoRefreshMinutes, lastSyncedAt }
   let aeriesTimer = null;
 
@@ -190,21 +190,46 @@
   }
 
   // ---------------------------------------------------------------------
-  // Local (per-browser) teacher name storage
+  // Teacher names (Supabase-backed, live across devices)
   // ---------------------------------------------------------------------
 
-  function loadTeachers() {
-    try {
-      const raw = localStorage.getItem(STORAGE_TEACHERS_KEY);
-      return raw ? JSON.parse(raw) : {};
-    } catch (e) {
-      console.error("Failed to load teacher names", e);
-      return {};
+  async function loadTeachers() {
+    if (!db) {
+      teachers = {};
+      return;
     }
+    const { data, error } = await db.from("room_teachers").select("*");
+    if (error) {
+      console.error("Failed to load teacher names", error);
+      showToast("Couldn't load teacher names: " + error.message);
+      return;
+    }
+    teachers = {};
+    (data || []).forEach((row) => {
+      teachers[row.room_id] = row.teacher_name || "";
+    });
   }
 
-  function saveTeachers() {
-    localStorage.setItem(STORAGE_TEACHERS_KEY, JSON.stringify(teachers));
+  // Debounced so a device typing a teacher name doesn't write on every
+  // keystroke -- it still updates the in-memory `teachers` value (and thus
+  // this device's own CSV export) immediately, only the Supabase write and
+  // the resulting broadcast to other devices are delayed.
+  function saveTeacherName(roomId, name) {
+    teachers[roomId] = name;
+    if (!db) return;
+    clearTimeout(teacherSaveTimers[roomId]);
+    teacherSaveTimers[roomId] = setTimeout(async () => {
+      const { error } = await db
+        .from("room_teachers")
+        .upsert(
+          { room_id: roomId, teacher_name: name, updated_at: new Date().toISOString() },
+          { onConflict: "room_id" }
+        );
+      if (error) {
+        console.error(error);
+        showToast("Couldn't save teacher name: " + error.message);
+      }
+    }, TEACHER_SAVE_DEBOUNCE_MS);
   }
 
   function loadAeriesConfig() {
@@ -680,6 +705,25 @@
         }
       )
       .subscribe();
+
+    db.channel("room-teachers-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "room_teachers" },
+        (payload) => {
+          const row = payload.new && Object.keys(payload.new).length > 0 ? payload.new : payload.old;
+          if (!row) return;
+          const name = payload.eventType === "DELETE" ? "" : row.teacher_name || "";
+          // Skip re-rendering when this is just the echo of a write this
+          // device itself just made (teachers[room.id] already matches) --
+          // avoids rebuilding every room card, which would drop focus out
+          // of whichever teacher-name field is being typed in right now.
+          if (teachers[row.room_id] === name) return;
+          teachers[row.room_id] = name;
+          renderRosters();
+        }
+      )
+      .subscribe();
   }
 
   // ---------------------------------------------------------------------
@@ -807,11 +851,12 @@
       teacherInput.placeholder = "Teacher name";
       teacherInput.value = teachers[room.id] || "";
       teacherInput.setAttribute("aria-label", room.name + " teacher name");
-      // Saved on every keystroke (not just on blur) so an in-progress edit
-      // survives even if a realtime update triggers a re-render mid-type.
+      // teachers[room.id] updates synchronously on every keystroke (so an
+      // in-progress edit survives even if a re-render happens mid-type),
+      // but the Supabase write -- and the live update it sends to every
+      // other device -- is debounced. See saveTeacherName.
       teacherInput.addEventListener("input", () => {
-        teachers[room.id] = teacherInput.value;
-        saveTeachers();
+        saveTeacherName(room.id, teacherInput.value);
       });
       card.appendChild(teacherInput);
 
@@ -1087,7 +1132,7 @@
 
   async function init() {
     updateDbBanner();
-    await Promise.all([loadRoster(), loadCheckins()]);
+    await Promise.all([loadRoster(), loadCheckins(), loadTeachers()]);
     renderAll();
     subscribeRealtime();
     renderAeriesStatus();
