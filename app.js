@@ -698,6 +698,46 @@
   });
 
   // ---------------------------------------------------------------------
+  // Update detection
+  // ---------------------------------------------------------------------
+  //
+  // This is meant to run unattended on one laptop, possibly with the tab
+  // left open across multiple Mondays — normal browser caching won't pick
+  // up a new deploy for a tab that's never re-navigated. So instead of
+  // relying on cache headers alone, periodically re-fetch index.html with
+  // caching explicitly disabled and compare its <meta name="app-version">
+  // against the version this page loaded with; a mismatch means a newer
+  // version has been deployed, so reload to pick it up.
+
+  const CURRENT_APP_VERSION = document.querySelector('meta[name="app-version"]').content;
+  const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+  async function checkForUpdate() {
+    try {
+      const res = await fetch("index.html?_=" + Date.now(), { cache: "no-store" });
+      if (!res.ok) return;
+      const html = await res.text();
+      const match = html.match(/<meta\s+name=["']app-version["']\s+content=["']([^"']+)["']/i);
+      const latestVersion = match && match[1];
+      if (latestVersion && latestVersion !== CURRENT_APP_VERSION) {
+        showToast("Updating to the latest version…");
+        setTimeout(() => location.reload(), 1500);
+      }
+    } catch (e) {
+      // Offline or the network hiccuped — not worth bothering anyone about;
+      // it'll just check again next time.
+      console.error("Update check failed", e);
+    }
+  }
+
+  setInterval(checkForUpdate, UPDATE_CHECK_INTERVAL_MS);
+  // Also check right when the tab regains focus/visibility — the common
+  // case of someone waking the laptop or switching back after a while.
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) checkForUpdate();
+  });
+
+  // ---------------------------------------------------------------------
   // Init
   // ---------------------------------------------------------------------
 

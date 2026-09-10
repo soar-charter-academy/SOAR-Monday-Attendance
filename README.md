@@ -103,6 +103,24 @@ This is a plain static site — no build step, no server required.
   branch (root folder). The app will be live at
   `https://<your-username>.github.io/<repo-name>/`.
 
+### Deploying an update
+
+This is meant to run unattended on one check-in laptop, possibly with the
+browser tab left open across multiple Mondays — so the app checks on its own
+for a newer deployed version (every 5 minutes, and whenever the tab regains
+focus) and reloads itself when it finds one, rather than relying on you to
+remember to hard-refresh.
+
+**Whenever you push a change that should reach that open tab, bump the
+version** — in `index.html`, update all three of:
+- `<meta name="app-version" content="N">`
+- `style.css?v=N`
+- `app.js?v=N`
+
+to the same next number `N`. Forgetting this doesn't break anything on a
+fresh page load, but an already-open tab won't notice the update until the
+version marker actually changes.
+
 ## Data & privacy notes
 
 - All roster and attendance data is stored **only in the browser's

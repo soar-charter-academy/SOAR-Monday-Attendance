@@ -3,8 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  app-version: bump this (and the matching ?v= below) on every deploy.
+  app.js polls this file for a version change so a browser tab left open
+  from a previous Monday picks up updates on its own — see checkForUpdate()
+  in app.js. Nothing else needs to change when you bump it.
+-->
+<meta name="app-version" content="1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
 <title>Monday Attendance</title>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=1">
 </head>
 <body>
 <header class="app-header">
@@ -95,6 +104,6 @@
 
 <div id="toast" class="toast" hidden></div>
 
-<script src="app.js"></script>
+<script src="app.js?v=1"></script>
 </body>
 </html>
