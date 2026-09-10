@@ -75,7 +75,7 @@ to test against). Before your first real Monday:
 Also worth double-checking: the "active enrollment" filter
 (`!s.InactiveStatusCode && !s.DeleteStatus`) — confirm those are the right
 fields for excluding withdrawn/inactive students in your district's Aeries
-data, and that the endpoint path (`/aeries/api/v5/schools/{code}/students`)
+data, and that the endpoint path (`/api/v5/schools/{code}/students`)
 matches your Aeries API version.
 
 ## Local testing (no Cloudflare account needed)

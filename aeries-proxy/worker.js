@@ -91,7 +91,7 @@ export default {
 };
 
 async function fetchSchoolStudents(baseUrl, schoolCode, apiKey) {
-  const aeriesUrl = baseUrl + "/aeries/api/v5/schools/" + encodeURIComponent(schoolCode) + "/students";
+  const aeriesUrl = baseUrl + "/api/v5/schools/" + encodeURIComponent(schoolCode) + "/students";
 
   let aeriesRes;
   try {
