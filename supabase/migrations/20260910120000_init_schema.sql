@@ -65,26 +65,63 @@ alter table room_teachers enable row level security;
 -- page) can read and write. This is appropriate for a trusted internal tool
 -- with no login. Tighten with Supabase Auth + narrower policies if this ever
 -- needs to be internet-public or handle sensitive data.
+--
+-- Unlike "create table"/"create index", Postgres has no "create policy if
+-- not exists" -- re-running this file (e.g. after a new table/policy is
+-- added here) would fail on every policy that already exists. So each one
+-- is dropped first: safe to run repeatedly, and re-creating with the exact
+-- same definition is a no-op in effect.
+drop policy if exists "public read students" on students;
 create policy "public read students" on students for select using (true);
+drop policy if exists "public insert students" on students;
 create policy "public insert students" on students for insert with check (true);
+drop policy if exists "public update students" on students;
 create policy "public update students" on students for update using (true);
+drop policy if exists "public delete students" on students;
 create policy "public delete students" on students for delete using (true);
 
+drop policy if exists "public read checkins" on checkins;
 create policy "public read checkins" on checkins for select using (true);
+drop policy if exists "public insert checkins" on checkins;
 create policy "public insert checkins" on checkins for insert with check (true);
 -- Update is needed for drag-and-drop between rooms (moveCheckin in app.js
 -- only ever changes room_id on an existing check-in row).
+drop policy if exists "public update checkins" on checkins;
 create policy "public update checkins" on checkins for update using (true) with check (true);
+drop policy if exists "public delete checkins" on checkins;
 create policy "public delete checkins" on checkins for delete using (true);
 
 -- No delete policy: a cleared teacher name is saved as an empty string
 -- (see saveTeacherName in app.js), never removed.
+drop policy if exists "public read room_teachers" on room_teachers;
 create policy "public read room_teachers" on room_teachers for select using (true);
+drop policy if exists "public insert room_teachers" on room_teachers;
 create policy "public insert room_teachers" on room_teachers for insert with check (true);
+drop policy if exists "public update room_teachers" on room_teachers;
 create policy "public update room_teachers" on room_teachers for update using (true) with check (true);
 
 -- Realtime: broadcast changes on these tables so every open browser tab
--- updates live as check-ins happen anywhere.
-alter publication supabase_realtime add table checkins;
-alter publication supabase_realtime add table students;
-alter publication supabase_realtime add table room_teachers;
+-- updates live as check-ins happen anywhere. Postgres has no "add table if
+-- not exists" for a publication either (it errors if the table is already
+-- a member), so each is guarded the same way.
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'checkins'
+  ) then
+    alter publication supabase_realtime add table checkins;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'students'
+  ) then
+    alter publication supabase_realtime add table students;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'room_teachers'
+  ) then
+    alter publication supabase_realtime add table room_teachers;
+  end if;
+end $$;
