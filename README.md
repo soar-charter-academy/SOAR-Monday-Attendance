@@ -58,10 +58,10 @@ That's it — reload the app and the banner at the top (which shows if
 Supabase isn't connected yet) should disappear.
 
 If you already ran an earlier version of this migration by hand (e.g. via
-the SQL Editor, before drag-and-drop was added), the `create table if not
-exists` statements will just no-op — re-run the file and it'll pick up the
-one new bit it's missing: the `checkins` update policy that drag-and-drop
-needs.
+the SQL Editor), the `create table if not exists` statements will just
+no-op — re-run the file and it'll pick up whatever it's missing (the
+`checkins` update policy drag-and-drop needs, and/or the unique index on
+`student_id` that Aeries sync needs).
 
 The schema is two tables:
 - `students` — the uploaded roster (Student ID, last name, first name, grade).
@@ -102,6 +102,39 @@ roster for everyone, so only do this when your roster actually changes.
 Don't have a real roster handy? Click **Load Sample Roster** to try the app
 with 21 made-up demo students (with fake Student IDs) spread across every
 grade band.
+
+## Live sync from Aeries (optional)
+
+If your school uses Aeries as its student information system, the app can
+pull a live roster straight from it instead of a manually uploaded CSV:
+
+- **Sync from Aeries** — pulls the current roster on demand and writes it
+  to Supabase, so every device shows the freshly synced roster — not just
+  the one that triggered the sync.
+- **⚙️ Aeries Settings** — configure the sync (a proxy URL + shared secret,
+  see below) and optionally turn on **auto-refresh** to re-pull
+  periodically (every 5/15/30/60 min) while that device's browser tab
+  stays open. These settings, unlike the roster itself, are saved only in
+  that browser — set them up on whichever device(s) you want doing the
+  syncing (often just one), and every other device still gets the result
+  live via Supabase.
+
+This app is a static site with nowhere safe to hold an Aeries API key
+directly, so live sync needs one small piece of separate infrastructure: a
+tiny Cloudflare Worker that holds the real Aeries credentials and proxies
+just the roster request. See [`aeries-proxy/README.md`](aeries-proxy/README.md)
+for what you need (an Aeries API key from your district) and how to deploy
+it — it takes a few minutes and Cloudflare's free tier is enough.
+
+A failed sync (Aeries or the proxy is unreachable) shows an error and
+leaves the current roster and today's check-ins untouched — it never
+wipes data on error. CSV upload and the sample roster remain available as
+a fallback / for schools not using Aeries.
+
+Re-syncing keeps an already-checked-in student matched to their check-in
+(by upserting on their durable Aeries-issued Student ID instead of
+replacing the whole roster table), so refreshing the roster mid-Monday
+can't strand or double up someone who's already been checked in.
 
 ## Other tools in the header
 
@@ -155,6 +188,12 @@ when it sees one — nothing else needs to change when you bump it.
   policies, appropriate for a trusted internal tool with no login screen.
   Don't point this app at a Supabase project that also holds sensitive
   unrelated data without tightening the policies first.
+- If you set up Aeries live sync, its proxy URL and shared secret are kept
+  only in that device's `localStorage` — never in Supabase, since the
+  students/checkins tables are readable by anyone holding the app's anon
+  key and a credential doesn't belong there. The roster it fetches (names,
+  grades, Student IDs), however, is written to Supabase like any other
+  roster update, so it does reach every device.
 - Attendance is kept per calendar day (`check_date`, set from the check-in
   device's local date), so each Monday starts with a clean slate
   automatically without needing a manual reset — though **Reset Today** is
@@ -163,12 +202,17 @@ when it sees one — nothing else needs to change when you bump it.
 ## Project structure
 
 ```
-index.html                    Page markup (search box, walk-in form, room roster grid)
+index.html                    Page markup (search box, walk-in form, room roster grid,
+                               Aeries settings dialog)
 style.css                     Styling
 config.js                     Your Supabase project URL + anon key (fill this in)
 app.js                        App logic: Supabase reads/writes, realtime sync, search,
-                               room assignment, live rendering, CSV import/export
+                               room assignment, live rendering, CSV import/export,
+                               Aeries sync + auto-refresh
 sample-roster.csv             Template / demo roster (Student ID, Last Name, First Name, Grade)
 supabase/config.toml           Supabase CLI project config (optional, for local dev)
 supabase/migrations/*.sql      Database schema (students, checkins tables + policies)
+aeries-proxy/                 Optional Cloudflare Worker that proxies Aeries API
+                               requests so the app never holds the Aeries API key
+                               directly — see aeries-proxy/README.md
 ```

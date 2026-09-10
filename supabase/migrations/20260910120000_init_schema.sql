@@ -36,7 +36,14 @@ create table if not exists checkins (
   check_date date not null
 );
 
-create index if not exists students_student_id_idx on students (student_id);
+-- Partial (not full) unique index: only enforced where student_id is set,
+-- so multiple CSV-uploaded/walk-in rows with no district ID can all have a
+-- null student_id without colliding. This is also what lets an Aeries
+-- re-sync upsert on student_id (see setRoster's preserveIds option in
+-- app.js) instead of wiping and recreating every row, so an already
+-- checked-in student's internal id -- and their check-in's FK to it --
+-- survives a mid-Monday roster refresh.
+create unique index if not exists students_student_id_unique_idx on students (student_id) where student_id is not null;
 create index if not exists checkins_check_date_idx on checkins (check_date);
 create index if not exists checkins_room_id_idx on checkins (room_id);
 
