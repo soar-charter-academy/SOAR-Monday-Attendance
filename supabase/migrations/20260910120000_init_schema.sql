@@ -46,14 +46,26 @@ create table if not exists room_teachers (
   updated_at timestamptz not null default now()
 );
 
--- Partial (not full) unique index: only enforced where student_id is set,
--- so multiple CSV-uploaded/walk-in rows with no district ID can all have a
--- null student_id without colliding. This is also what lets an Aeries
--- re-sync upsert on student_id (see setRoster's preserveIds option in
--- app.js) instead of wiping and recreating every row, so an already
--- checked-in student's internal id -- and their check-in's FK to it --
--- survives a mid-Monday roster refresh.
-create unique index if not exists students_student_id_unique_idx on students (student_id) where student_id is not null;
+-- Lets an Aeries re-sync upsert on student_id (see setRoster's preserveIds
+-- option in app.js) instead of wiping and recreating every row, so an
+-- already checked-in student's internal id -- and their check-in's FK to
+-- it -- survives a mid-Monday roster refresh. Multiple CSV-uploaded/
+-- walk-in rows with no district ID can still all have a null student_id
+-- without colliding -- Postgres treats every NULL as distinct from every
+-- other NULL for uniqueness purposes, so nothing partial is needed for
+-- that.
+--
+-- IMPORTANT: this must stay a plain (non-partial) index. An earlier
+-- version of this file made it partial ("where student_id is not null"),
+-- which broke the upsert above: PostgREST's onConflict: "student_id"
+-- generates a plain "ON CONFLICT (student_id)", and Postgres only matches
+-- that against a full unique index/constraint, not a partial one --
+-- against a partial index it fails with "there is no unique or exclusion
+-- constraint matching the ON CONFLICT specification". Dropped and
+-- recreated (not just "if not exists") so re-running this file replaces
+-- an already-applied partial index with the correct one.
+drop index if exists students_student_id_unique_idx;
+create unique index if not exists students_student_id_unique_idx on students (student_id);
 create index if not exists checkins_check_date_idx on checkins (check_date);
 create index if not exists checkins_room_id_idx on checkins (room_id);
 
