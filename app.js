@@ -45,30 +45,36 @@
   };
 
   const SAMPLE_ROSTER = [
-    { name: "Ava Thompson", grade: "TK" },
-    { name: "Liam Rodriguez", grade: "TK" },
-    { name: "Sophia Nguyen", grade: "K" },
-    { name: "Noah Patel", grade: "K" },
-    { name: "Mia Johnson", grade: "K" },
-    { name: "Elijah Garcia", grade: "1" },
-    { name: "Olivia Martinez", grade: "1" },
-    { name: "Lucas Kim", grade: "2" },
-    { name: "Emma Davis", grade: "2" },
-    { name: "Benjamin Lee", grade: "3" },
-    { name: "Charlotte Brown", grade: "3" },
-    { name: "James Wilson", grade: "4" },
-    { name: "Amelia Clark", grade: "4" },
-    { name: "Henry Lewis", grade: "5" },
-    { name: "Isabella Walker", grade: "5" },
-    { name: "Alexander Hall", grade: "6" },
-    { name: "Harper Young", grade: "6" },
-    { name: "Michael Allen", grade: "7" },
-    { name: "Evelyn Scott", grade: "7" },
-    { name: "Daniel Torres", grade: "8" },
-    { name: "Abigail Reed", grade: "8" },
+    { studentId: "100001", firstName: "Ava", lastName: "Thompson", grade: "TK" },
+    { studentId: "100002", firstName: "Liam", lastName: "Rodriguez", grade: "TK" },
+    { studentId: "100003", firstName: "Sophia", lastName: "Nguyen", grade: "K" },
+    { studentId: "100004", firstName: "Noah", lastName: "Patel", grade: "K" },
+    { studentId: "100005", firstName: "Mia", lastName: "Johnson", grade: "K" },
+    { studentId: "100006", firstName: "Elijah", lastName: "Garcia", grade: "1" },
+    { studentId: "100007", firstName: "Olivia", lastName: "Martinez", grade: "1" },
+    { studentId: "100008", firstName: "Lucas", lastName: "Kim", grade: "2" },
+    { studentId: "100009", firstName: "Emma", lastName: "Davis", grade: "2" },
+    { studentId: "100010", firstName: "Benjamin", lastName: "Lee", grade: "3" },
+    { studentId: "100011", firstName: "Charlotte", lastName: "Brown", grade: "3" },
+    { studentId: "100012", firstName: "James", lastName: "Wilson", grade: "4" },
+    { studentId: "100013", firstName: "Amelia", lastName: "Clark", grade: "4" },
+    { studentId: "100014", firstName: "Henry", lastName: "Lewis", grade: "5" },
+    { studentId: "100015", firstName: "Isabella", lastName: "Walker", grade: "5" },
+    { studentId: "100016", firstName: "Alexander", lastName: "Hall", grade: "6" },
+    { studentId: "100017", firstName: "Harper", lastName: "Young", grade: "6" },
+    { studentId: "100018", firstName: "Michael", lastName: "Allen", grade: "7" },
+    { studentId: "100019", firstName: "Evelyn", lastName: "Scott", grade: "7" },
+    { studentId: "100020", firstName: "Daniel", lastName: "Torres", grade: "8" },
+    { studentId: "100021", firstName: "Abigail", lastName: "Reed", grade: "8" },
   ];
 
   const NIL_UUID = "00000000-0000-0000-0000-000000000000";
+
+  // Per-room teacher names are a lightweight, purely local UI convenience —
+  // stored in this browser's localStorage rather than Supabase, so they
+  // aren't synced across devices. Each check-in table sets its own room's
+  // teacher name once and it's just along for the ride into CSV exports.
+  const STORAGE_TEACHERS_KEY = "mondayAttendance.teachers.v1";
 
   // ---------------------------------------------------------------------
   // Supabase client
@@ -89,9 +95,10 @@
   // State
   // ---------------------------------------------------------------------
 
-  let roster = []; // [{ id, name, grade }]
-  let checkins = []; // [{ id, studentId, name, grade, roomId, time, walkin }]
+  let roster = []; // [{ id, studentId, firstName, lastName, grade }]
+  let checkins = []; // [{ id, studentId, aeriesStudentId, firstName, lastName, grade, roomId, time, walkin }]
   let activeSuggestionIndex = -1;
+  let teachers = loadTeachers(); // { [roomId]: teacherName }
 
   // ---------------------------------------------------------------------
   // DOM refs
@@ -139,19 +146,66 @@
     return g;
   }
 
+  // Combines a roster/check-in entry's separate name fields for display and
+  // search, since neither table stores a single combined "name" anymore.
+  function fullName(entry) {
+    return [entry.firstName, entry.lastName].filter(Boolean).join(" ");
+  }
+
+  // Best-effort split of a single combined "First Last" walk-in name into
+  // separate fields, since check-ins are stored with first_name/last_name
+  // columns like the rest of the roster. Splits at the FIRST space, so a
+  // multi-word last name like "Ruben Reyes Jr." comes out right (First:
+  // Ruben, Last: Reyes Jr.); a multi-word first name would not -- there's no
+  // way to tell those apart from a single combined string. Only walk-ins
+  // need this: roster entries already carry first/last name separately from
+  // the CSV upload.
+  function splitName(fullNameStr) {
+    const trimmed = String(fullNameStr || "").trim();
+    const firstSpace = trimmed.indexOf(" ");
+    if (firstSpace === -1) return { firstName: trimmed, lastName: "" };
+    return { firstName: trimmed.slice(0, firstSpace), lastName: trimmed.slice(firstSpace + 1) };
+  }
+
+  // ---------------------------------------------------------------------
+  // Local (per-browser) teacher name storage
+  // ---------------------------------------------------------------------
+
+  function loadTeachers() {
+    try {
+      const raw = localStorage.getItem(STORAGE_TEACHERS_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch (e) {
+      console.error("Failed to load teacher names", e);
+      return {};
+    }
+  }
+
+  function saveTeachers() {
+    localStorage.setItem(STORAGE_TEACHERS_KEY, JSON.stringify(teachers));
+  }
+
   // ---------------------------------------------------------------------
   // Row <-> app-state mapping
   // ---------------------------------------------------------------------
 
   function mapStudentRow(row) {
-    return { id: row.id, name: row.name, grade: row.grade };
+    return {
+      id: row.id,
+      studentId: row.student_id || "",
+      firstName: row.first_name,
+      lastName: row.last_name,
+      grade: row.grade,
+    };
   }
 
   function mapCheckinRow(row) {
     return {
       id: row.id,
       studentId: row.student_id,
-      name: row.name,
+      aeriesStudentId: row.aeries_student_id || "",
+      firstName: row.first_name,
+      lastName: row.last_name,
       grade: row.grade,
       roomId: row.room_id,
       time: row.checked_in_at,
@@ -168,7 +222,11 @@
       roster = [];
       return;
     }
-    const { data, error } = await db.from("students").select("*").order("name", { ascending: true });
+    const { data, error } = await db
+      .from("students")
+      .select("*")
+      .order("last_name", { ascending: true })
+      .order("first_name", { ascending: true });
     if (error) {
       console.error("Failed to load roster", error);
       showToast("Couldn't load roster: " + error.message);
@@ -201,8 +259,13 @@
       return;
     }
     const rows = students
-      .map((s) => ({ name: String(s.name).trim(), grade: normalizeGrade(s.grade) }))
-      .filter((s) => s.name);
+      .map((s) => ({
+        student_id: s.studentId ? String(s.studentId).trim() : null,
+        last_name: String(s.lastName || "").trim(),
+        first_name: String(s.firstName || "").trim(),
+        grade: normalizeGrade(s.grade),
+      }))
+      .filter((s) => s.last_name || s.first_name);
 
     const { error: delErr } = await db.from("students").delete().neq("id", NIL_UUID);
     if (delErr) {
@@ -222,22 +285,51 @@
     renderAll();
   }
 
+  // Aeries roster exports use varying header names across school configs;
+  // these aliases (matched after lowercasing and stripping everything but
+  // letters/digits, so "Last Name", "last_name", and "LastName" all match)
+  // cover the common ones. Student ID is the only optional column -- a
+  // roster without a district ID column still uploads fine, just with a
+  // blank Student ID on export.
+  const STUDENT_ID_HEADER_ALIASES = ["studentid", "id", "permanentid", "permid", "studentnumber", "sid"];
+  const LAST_NAME_HEADER_ALIASES = ["lastname", "last", "surname"];
+  const FIRST_NAME_HEADER_ALIASES = ["firstname", "first", "givenname"];
+  const GRADE_HEADER_ALIASES = ["grade", "gradelevel"];
+
+  function normalizeHeader(h) {
+    return String(h).trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  }
+
+  function findColumn(headers, aliases) {
+    for (const alias of aliases) {
+      const idx = headers.indexOf(alias);
+      if (idx !== -1) return idx;
+    }
+    return -1;
+  }
+
   function parseCsv(text) {
     const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
     if (lines.length === 0) return [];
-    const header = lines[0].split(",").map((h) => h.trim().toLowerCase());
-    const nameIdx = header.indexOf("name");
-    const gradeIdx = header.indexOf("grade");
-    const startRow = nameIdx === -1 || gradeIdx === -1 ? 0 : 1;
-    const nIdx = nameIdx === -1 ? 0 : nameIdx;
-    const gIdx = gradeIdx === -1 ? 1 : gradeIdx;
+    const headers = lines[0].split(",").map(normalizeHeader);
+
+    const idIdx = findColumn(headers, STUDENT_ID_HEADER_ALIASES);
+    const lastIdx = findColumn(headers, LAST_NAME_HEADER_ALIASES);
+    const firstIdx = findColumn(headers, FIRST_NAME_HEADER_ALIASES);
+    const gradeIdx = findColumn(headers, GRADE_HEADER_ALIASES);
+
+    // Last Name, First Name, and Grade all need to be identifiable columns;
+    // Student ID is the only one that's allowed to be missing.
+    if (lastIdx === -1 || firstIdx === -1 || gradeIdx === -1) return [];
 
     const students = [];
-    for (let i = startRow; i < lines.length; i++) {
+    for (let i = 1; i < lines.length; i++) {
       const cols = lines[i].split(",");
-      const name = (cols[nIdx] || "").trim();
-      const grade = (cols[gIdx] || "").trim();
-      if (name) students.push({ name, grade });
+      const lastName = (cols[lastIdx] || "").trim();
+      const firstName = (cols[firstIdx] || "").trim();
+      const grade = (cols[gradeIdx] || "").trim();
+      const studentId = idIdx === -1 ? "" : (cols[idIdx] || "").trim();
+      if (lastName || firstName) students.push({ studentId, firstName, lastName, grade });
     }
     return students;
   }
@@ -270,7 +362,7 @@
       return;
     }
     if (student.id && isCheckedIn(student.id)) {
-      showStatus(student.name + " is already checked in today.", "error");
+      showStatus(fullName(student) + " is already checked in today.", "error");
       return;
     }
     const room = findRoomForGrade(student.grade);
@@ -288,7 +380,9 @@
       .from("checkins")
       .insert({
         student_id: student.id || null,
-        name: student.name,
+        aeries_student_id: student.studentId || null,
+        first_name: student.firstName || "",
+        last_name: student.lastName || "",
         grade: student.grade,
         room_id: room.id,
         walkin: !!student.walkin,
@@ -301,15 +395,15 @@
 
     if (error) {
       console.error(error);
-      showStatus("Couldn't check in " + student.name + ": " + error.message, "error");
+      showStatus("Couldn't check in " + fullName(student) + ": " + error.message, "error");
       return;
     }
 
     if (!checkins.some((c) => c.id === data.id)) {
       checkins.push(mapCheckinRow(data));
     }
-    showStatus(student.name + " checked in to " + room.name + ".", "success");
-    showToast("✅ " + student.name + " → " + room.name);
+    showStatus(fullName(student) + " checked in to " + room.name + ".", "success");
+    showToast("✅ " + fullName(student) + " → " + room.name);
     renderRosters();
     clearSearch();
   }
@@ -323,12 +417,12 @@
     const { error } = await db.from("checkins").delete().eq("id", checkinId);
     if (error) {
       console.error(error);
-      showToast("Couldn't remove " + entry.name + ": " + error.message);
+      showToast("Couldn't remove " + fullName(entry) + ": " + error.message);
       await loadCheckins();
       renderRosters();
       return;
     }
-    showToast("Removed " + entry.name + " from today's attendance.");
+    showToast("Removed " + fullName(entry) + " from today's attendance.");
   }
 
   // ---------------------------------------------------------------------
@@ -390,7 +484,7 @@
     if (!q) return [];
     return roster
       .filter((s) => !isCheckedIn(s.id))
-      .filter((s) => s.name.toLowerCase().includes(q))
+      .filter((s) => fullName(s).toLowerCase().includes(q))
       .slice(0, 8);
   }
 
@@ -405,7 +499,7 @@
       li.setAttribute("role", "option");
       li.className = idx === activeSuggestionIndex ? "active" : "";
       const nameSpan = document.createElement("span");
-      nameSpan.textContent = s.name;
+      nameSpan.textContent = fullName(s);
       const gradeSpan = document.createElement("span");
       gradeSpan.className = "grade-tag";
       gradeSpan.textContent = GRADE_LABELS[s.grade] || s.grade;
@@ -476,6 +570,20 @@
         '<span class="room-count ' + level + '">' + count + " / " + room.capacity + "</span>";
       card.appendChild(header);
 
+      const teacherInput = document.createElement("input");
+      teacherInput.type = "text";
+      teacherInput.className = "teacher-input";
+      teacherInput.placeholder = "Teacher name";
+      teacherInput.value = teachers[room.id] || "";
+      teacherInput.setAttribute("aria-label", room.name + " teacher name");
+      // Saved on every keystroke (not just on blur) so an in-progress edit
+      // survives even if a realtime update triggers a re-render mid-type.
+      teacherInput.addEventListener("input", () => {
+        teachers[room.id] = teacherInput.value;
+        saveTeachers();
+      });
+      card.appendChild(teacherInput);
+
       const track = document.createElement("div");
       track.className = "progress-track";
       const fill = document.createElement("div");
@@ -495,7 +603,7 @@
         entries.forEach((entry) => {
           const li = document.createElement("li");
           const label = document.createElement("span");
-          label.textContent = entry.name + (entry.walkin ? " (walk-in)" : "");
+          label.textContent = fullName(entry) + (entry.walkin ? " (walk-in)" : "");
           const removeBtn = document.createElement("button");
           removeBtn.className = "remove-btn";
           removeBtn.type = "button";
@@ -523,18 +631,28 @@
   // Export
   // ---------------------------------------------------------------------
 
+  function studentIdForExport(entry) {
+    return entry.aeriesStudentId || "";
+  }
+
   function exportCsv() {
-    const roomsById = Object.fromEntries(ROOMS.map((r) => [r.id, r.name]));
-    const rows = [["Name", "Grade", "Room", "Check-in Time"]];
+    const rows = [["Student ID", "Last Name", "First Name", "Grade", "Teacher"]];
     checkins
       .slice()
-      .sort((a, b) => new Date(a.time) - new Date(b.time))
+      .sort((a, b) => {
+        const teacherA = teachers[a.roomId] || "";
+        const teacherB = teachers[b.roomId] || "";
+        // Group rows by teacher; within the same teacher, keep the original
+        // check-in-time order rather than an arbitrary one.
+        return teacherA.localeCompare(teacherB) || new Date(a.time) - new Date(b.time);
+      })
       .forEach((c) => {
         rows.push([
-          c.name,
+          studentIdForExport(c),
+          c.lastName || "",
+          c.firstName || "",
           GRADE_LABELS[c.grade] || c.grade,
-          roomsById[c.roomId] || c.roomId,
-          new Date(c.time).toLocaleTimeString(),
+          teachers[c.roomId] || "",
         ]);
       });
     const csv = rows.map((r) => r.map(csvEscape).join(",")).join("\r\n");
@@ -598,7 +716,7 @@
     reader.onload = async () => {
       const students = parseCsv(String(reader.result));
       if (students.length === 0) {
-        showToast("That CSV didn't have any usable rows (expected Name, Grade columns).");
+        showToast("That CSV didn't have any usable rows (expected Last Name, First Name, Grade columns — Student ID optional).");
         return;
       }
       await setRoster(students);
@@ -650,7 +768,8 @@
     const name = el.walkinName.value.trim();
     const grade = normalizeGrade(el.walkinGrade.value);
     if (!name || !grade) return;
-    await checkInStudent({ name, grade, walkin: true });
+    const { firstName, lastName } = splitName(name);
+    await checkInStudent({ firstName, lastName, grade, walkin: true });
     el.walkinForm.reset();
     el.walkinDetails.open = false;
   });

@@ -5,15 +5,26 @@ create extension if not exists pgcrypto;
 
 create table if not exists students (
   id uuid primary key default gen_random_uuid(),
-  name text not null,
+  -- Aeries-issued student ID. Nullable: a roster CSV without an ID column
+  -- still uploads fine, just with a blank Student ID on export.
+  student_id text,
+  last_name text not null,
+  first_name text not null,
   grade text not null,
   created_at timestamptz not null default now()
 );
 
 create table if not exists checkins (
   id uuid primary key default gen_random_uuid(),
+  -- Internal FK to students.id, used to detect "already checked in today"
+  -- and to catch roster-side updates/deletes. Not the district student ID.
   student_id uuid references students(id) on delete set null,
-  name text not null,
+  -- Copied from students.student_id at check-in time, so a check-in's
+  -- exported Student ID stays correct even if the roster is later replaced.
+  -- Null for walk-ins, which never have a district-issued ID.
+  aeries_student_id text,
+  last_name text not null,
+  first_name text not null,
   grade text not null,
   room_id text not null,
   walkin boolean not null default false,
@@ -25,6 +36,7 @@ create table if not exists checkins (
   check_date date not null
 );
 
+create index if not exists students_student_id_idx on students (student_id);
 create index if not exists checkins_check_date_idx on checkins (check_date);
 create index if not exists checkins_room_id_idx on checkins (room_id);
 

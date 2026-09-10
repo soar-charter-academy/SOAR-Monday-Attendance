@@ -55,7 +55,7 @@ That's it — reload the app and the banner at the top (which shows if
 Supabase isn't connected yet) should disappear.
 
 The schema is two tables:
-- `students` — the uploaded roster (name, grade).
+- `students` — the uploaded roster (Student ID, last name, first name, grade).
 - `checkins` — today's (and every previous day's) check-in events, each
   tied to a room and timestamp.
 
@@ -66,39 +66,57 @@ Supabase Auth and narrow the policies in a follow-up migration.
 
 ## Loading your student roster
 
-Click **Upload Roster (CSV)** and choose a CSV file with two columns:
+Click **Upload Roster (CSV)** and choose a CSV file with a header row and
+columns for Student ID, Last Name, First Name, and Grade — matching the
+columns a typical Aeries roster export uses:
 
 ```csv
-Name,Grade
-Ava Thompson,TK
-Noah Patel,K
-Elijah Garcia,1
+Student ID,Last Name,First Name,Grade
+100001,Thompson,Ava,TK
+100004,Patel,Noah,K
+100006,Garcia,Elijah,1
 ...
 ```
 
+The header names are matched loosely (case-insensitive, ignoring spaces —
+so `Student ID`, `StudentID`, and `student_id` all work; `Last`/`Surname`
+and `First`/`Given Name` are also recognized). **Student ID is optional** —
+a roster without a district ID column still uploads fine, just with a
+blank Student ID on export; Last Name, First Name, and Grade are required.
+
 Grade values accepted: `TK`, `K`, and `1`-`8`. A ready-to-edit template is
 included at [`sample-roster.csv`](sample-roster.csv) — export your school's
-roster into that same format (e.g. from a spreadsheet: File → Download →
-CSV) and upload it. Uploading replaces the previously stored roster for
-everyone, so only do this when your roster actually changes.
+roster into that same format (e.g. from Aeries, or a spreadsheet: File →
+Download → CSV) and upload it. Uploading replaces the previously stored
+roster for everyone, so only do this when your roster actually changes.
 
 Don't have a real roster handy? Click **Load Sample Roster** to try the app
-with 21 made-up demo students spread across every grade band.
+with 21 made-up demo students (with fake Student IDs) spread across every
+grade band.
 
 ## Other tools in the header
 
 - **Export Today's Attendance (CSV)** — downloads a CSV of everyone checked
-  in today: name, grade, assigned room, and check-in time. Handy for
-  records or for sharing with room leads.
+  in today: Student ID, Last Name, First Name, Grade, and Teacher (the
+  room's teacher name, if set — see below), sorted by teacher. Handy for
+  records or for sharing with room leads. Walk-ins export with a blank
+  Student ID, since they don't have a district-issued one.
 - **Reset Today** — clears all of today's check-ins for everyone (with a
   confirmation prompt) so you can start a fresh session. It does not touch
-  the roster.
+  the roster or the teacher names below.
 - **Walk-ins** — if a student isn't on the uploaded roster, open "Student
   not on the list? Add a walk-in" under the search box to check them in
   manually by name and grade.
 - Made a mistake? Click the **✕** next to any name in a room's roster to
   remove that check-in (e.g. to move a student to a different room — remove
   them, then search and check them in again).
+
+Each room card also has a small **Teacher name** field. Whatever's typed
+there is included as the Teacher column on export — handy for handing a
+room's list straight to that teacher. Unlike the roster and check-ins,
+teacher names are a per-browser convenience stored in that device's
+localStorage rather than in Supabase, so they aren't shared live across
+devices — each check-in table sets its own room's teacher name once.
 
 ## Running it
 
@@ -133,7 +151,7 @@ style.css                     Styling
 config.js                     Your Supabase project URL + anon key (fill this in)
 app.js                        App logic: Supabase reads/writes, realtime sync, search,
                                room assignment, live rendering, CSV import/export
-sample-roster.csv             Template / demo roster (2-column CSV: Name, Grade)
+sample-roster.csv             Template / demo roster (Student ID, Last Name, First Name, Grade)
 supabase/config.toml           Supabase CLI project config (optional, for local dev)
 supabase/migrations/*.sql      Database schema (students, checkins tables + policies)
 ```
