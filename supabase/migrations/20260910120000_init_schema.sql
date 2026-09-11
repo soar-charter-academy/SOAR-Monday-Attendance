@@ -83,7 +83,18 @@ returns boolean
 language sql
 stable
 as $$
-  select coalesce(lower(auth.jwt() ->> 'email') like '%@soarcharteracademy.org', false);
+  select coalesce(
+    split_part(lower(auth.jwt() ->> 'email'), '@', 2) = 'soarcharteracademy.org'
+    -- Student accounts live in this same domain as their six-digit Aeries
+    -- ID (123456@soarcharteracademy.org), so the domain alone does not
+    -- distinguish staff from students. Same numeric-prefix test the House
+    -- Points project has used in handle_new_user() since its initial
+    -- schema. This is a naming-convention denylist, not real authorization
+    -- -- it still admits service accounts and shared mailboxes. Replaced
+    -- by a membership check against profiles when this project merges into
+    -- the House Points Supabase project.
+    and split_part(lower(auth.jwt() ->> 'email'), '@', 1) !~ '^[0-9]+$',
+    false);
 $$;
 
 -- Any signed-in @soarcharteracademy.org Google account (see the app's

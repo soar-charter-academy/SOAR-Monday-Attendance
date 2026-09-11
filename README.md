@@ -78,19 +78,23 @@ Auth session for every read and write — see **Staff sign-in** below.
 
 ## Staff sign-in
 
-The app requires signing in with a **Google account on the
+The app requires signing in with a **staff Google account on the
 `@soarcharteracademy.org` domain** before showing any student data —
 staff use their existing school Google account; there's no separate
-password to create or manage, and no other domain can sign in.
+password to create or manage. Student accounts live on this same domain
+(their six-digit Aeries ID, e.g. `123456@soarcharteracademy.org`) and are
+excluded — see **Where access is actually enforced** below.
 
 **One-time setup, in this order:**
 
 1. **Google Cloud Console** → create (or reuse) a project → **APIs &
    Services → OAuth consent screen**:
    - If `soarcharteracademy.org` is a Google Workspace domain, set
-     **User Type** to **Internal**. This is the strongest option — Google
-     itself refuses the sign-in for any account outside the Workspace, so
-     a wrong-domain account never even reaches this app.
+     **User Type** to **Internal**. Google then refuses the sign-in for
+     any account outside the Workspace, so a wrong-domain account never
+     even reaches this app. Note this does *not* exclude students — they
+     are inside the Workspace; that exclusion happens in the RLS policies
+     described below.
    - Otherwise, **External** still works — this app's own checks (below)
      enforce the domain instead of Google doing it for you at the account
      picker.
@@ -107,19 +111,29 @@ password to create or manage, and no other domain can sign in.
    here.
 
 That's it — no accounts to create per staff member. Anyone signing in
-with a `@soarcharteracademy.org` Google account gets in immediately, with
-the same access as everyone else (there's no separate admin/staff role).
+with a non-student `@soarcharteracademy.org` Google account gets in
+immediately, with the same access as everyone else (there's no separate
+admin/staff role yet).
 Signing out (the **Sign Out** button in the header) clears that device's
 session; signing back in picks up right where the shared
 roster/check-ins/teacher names already are, since none of that is tied to
 who's signed in.
 
-**Where the domain restriction is actually enforced:** every table's RLS
-policy checks a `is_org_user()` database function that reads the signed-in
-user's email off their Supabase session and requires it to end in
-`@soarcharteracademy.org` — this is checked on every single request, at
-the database, which is what actually protects the data regardless of what
-Google or the app's UI do. The app also does its own check right after
+**Where access is actually enforced:** every table's RLS policy checks an
+`is_org_user()` database function that reads the signed-in user's email off
+their Supabase session and requires two things — the domain is
+`soarcharteracademy.org`, *and* the account name is not all digits. That
+second test is what excludes students, who live on this same domain under
+their six-digit Aeries ID; the domain by itself does not distinguish staff
+from students. This is checked on every single request, at the database,
+which is what actually protects the data regardless of what Google or the
+app's UI do.
+
+Note that the numeric-prefix test is a naming-convention denylist, not real
+authorization — it still admits service accounts, shared mailboxes, and any
+other non-staff account on the domain. It is replaced by a membership check
+against the House Points `profiles` table when this project merges into that
+Supabase project. The app also does its own check right after
 sign-in (immediately signing out and showing an error for a wrong-domain
 account) purely so that mistake produces a clear message instead of a
 confusingly broken, empty app — that check alone would **not** stop
@@ -244,9 +258,9 @@ when it sees one — nothing else needs to change when you bump it.
 - Roster, attendance, and teacher-name data all live in Supabase (Postgres),
   shared across every device that loads the app — this is what makes the
   live rosters work across multiple check-in tables.
-- All of that requires signing in with a `@soarcharteracademy.org` Google
-  account (see **Staff sign-in** above), enforced by RLS policies at the
-  database level — the public **anon key** in `config.js` no longer grants
+- All of that requires signing in with a non-student
+  `@soarcharteracademy.org` Google account (see **Staff sign-in** above),
+  enforced by RLS policies at the database level — the public **anon key** in `config.js` no longer grants
   read or write access on its own, only the ability to attempt a sign-in.
   This matters specifically because this repo (and therefore `config.js`)
   is **public on GitHub**: without the domain-restricted sign-in, anyone
