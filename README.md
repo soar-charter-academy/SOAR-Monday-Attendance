@@ -65,7 +65,7 @@ no-op — re-run the file and it'll pick up whatever it's missing (the
 teacher names need).
 
 The schema is three tables:
-- `students` — the uploaded roster (Student ID, last name, first name, grade).
+- `students` — the roster synced from Aeries (Student ID, last name, first name, grade).
 - `checkins` — today's (and every previous day's) check-in events, each
   tied to a room and timestamp.
 - `room_teachers` — one row per room, holding whoever's running it today.
@@ -75,45 +75,11 @@ can read/write" policy — appropriate for a trusted internal tool with no
 login. If this ever needs real user accounts or tighter access control, add
 Supabase Auth and narrow the policies in a follow-up migration.
 
-## Loading your student roster
+## Loading your student roster: Aeries sync
 
-Click **Upload Roster (CSV)** and choose a CSV file with a header row and
-columns for Student ID, Last Name, First Name, and Grade — matching the
-columns a typical Aeries roster export uses:
-
-```csv
-Student ID,Last Name,First Name,Grade
-100001,Thompson,Ava,TK
-100004,Patel,Noah,K
-100006,Garcia,Elijah,1
-...
-```
-
-The header names are matched loosely (case-insensitive, ignoring spaces —
-so `Student ID`, `StudentID`, and `student_id` all work; `Last`/`Surname`
-and `First`/`Given Name` are also recognized). **Student ID is optional** —
-a roster without a district ID column still uploads fine, just with a
-blank Student ID on export; Last Name, First Name, and Grade are required.
-
-Grade values accepted: `TK`, `K`, and `1`-`8`. A ready-to-edit template is
-included at [`sample-roster.csv`](sample-roster.csv) — export your school's
-roster into that same format (e.g. from Aeries, or a spreadsheet: File →
-Download → CSV) and upload it. Uploading replaces the previously stored
-roster for everyone, so only do this when your roster actually changes.
-
-Don't have a real roster handy? Click **Load Sample Roster** to try the app
-with 21 made-up demo students (with fake Student IDs) spread across every
-grade band.
-
-Both of these ask for confirmation before replacing an existing roster (so
-an accidental click can't silently wipe real students) — the only things
-that never ask are additive: check-ins, teacher names, and an Aeries sync
-finding new/updated students (see below).
-
-## Live sync from Aeries (optional)
-
-If your school uses Aeries as its student information system, the app can
-pull a live roster straight from it instead of a manually uploaded CSV:
+The roster comes exclusively from Aeries — there's no CSV upload or demo
+sample roster anymore; **Sync from Aeries** (and, optionally,
+auto-refresh) is the only way students get into the app:
 
 - **Sync from Aeries** — pulls the current roster on demand and writes it
   to Supabase, so every device shows the freshly synced roster — not just
@@ -131,12 +97,13 @@ directly, so live sync needs one small piece of separate infrastructure: a
 tiny Cloudflare Worker that holds the real Aeries credentials and proxies
 just the roster request. See [`aeries-proxy/README.md`](aeries-proxy/README.md)
 for what you need (an Aeries API key from your district) and how to deploy
-it — it takes a few minutes and Cloudflare's free tier is enough.
+it — it takes a few minutes and Cloudflare's free tier is enough. Until
+that's set up, the roster stays empty (walk-ins still work in the
+meantime — see below).
 
 A failed sync (Aeries or the proxy is unreachable) shows an error and
 leaves the current roster and today's check-ins untouched — it never
-wipes data on error. CSV upload and the sample roster remain available as
-a fallback / for schools not using Aeries.
+wipes data on error.
 
 Re-syncing keeps an already-checked-in student matched to their check-in
 (by upserting on their durable Aeries-issued Student ID instead of
@@ -164,9 +131,9 @@ leave the roster as-is or grow it, never shrink it.
 - **Reset Today** — clears all of today's check-ins for everyone (with a
   confirmation prompt) so you can start a fresh session. It does not touch
   the roster or the teacher names below.
-- **Walk-ins** — if a student isn't on the uploaded roster, open "Student
-  not on the list? Add a walk-in" under the search box to check them in
-  manually by name and grade.
+- **Walk-ins** — if a student isn't on the synced roster (or Aeries sync
+  isn't set up yet), open "Student not on the list? Add a walk-in" under
+  the search box to check them in manually by name and grade.
 - Click the **✕** next to any name in a room's roster to remove that
   check-in entirely, or drag their row onto a different room card to move
   them there instead (see above).
@@ -225,9 +192,8 @@ index.html                    Page markup (search box, walk-in form, room roster
 style.css                     Styling
 config.js                     Your Supabase project URL + anon key (fill this in)
 app.js                        App logic: Supabase reads/writes, realtime sync, search,
-                               room assignment, live rendering, CSV import/export,
+                               room assignment, live rendering, attendance CSV export,
                                Aeries sync + auto-refresh
-sample-roster.csv             Template / demo roster (Student ID, Last Name, First Name, Grade)
 supabase/config.toml           Supabase CLI project config (optional, for local dev)
 supabase/migrations/*.sql      Database schema (students, checkins, room_teachers tables + policies)
 aeries-proxy/                 Optional Cloudflare Worker that proxies Aeries API
