@@ -44,31 +44,6 @@
     "5": "5th", "6": "6th", "7": "7th", "8": "8th",
   };
 
-  const SAMPLE_ROSTER = [
-    { studentId: "100001", firstName: "Ava", lastName: "Thompson", grade: "TK" },
-    { studentId: "100002", firstName: "Liam", lastName: "Rodriguez", grade: "TK" },
-    { studentId: "100003", firstName: "Sophia", lastName: "Nguyen", grade: "K" },
-    { studentId: "100004", firstName: "Noah", lastName: "Patel", grade: "K" },
-    { studentId: "100005", firstName: "Mia", lastName: "Johnson", grade: "K" },
-    { studentId: "100006", firstName: "Elijah", lastName: "Garcia", grade: "1" },
-    { studentId: "100007", firstName: "Olivia", lastName: "Martinez", grade: "1" },
-    { studentId: "100008", firstName: "Lucas", lastName: "Kim", grade: "2" },
-    { studentId: "100009", firstName: "Emma", lastName: "Davis", grade: "2" },
-    { studentId: "100010", firstName: "Benjamin", lastName: "Lee", grade: "3" },
-    { studentId: "100011", firstName: "Charlotte", lastName: "Brown", grade: "3" },
-    { studentId: "100012", firstName: "James", lastName: "Wilson", grade: "4" },
-    { studentId: "100013", firstName: "Amelia", lastName: "Clark", grade: "4" },
-    { studentId: "100014", firstName: "Henry", lastName: "Lewis", grade: "5" },
-    { studentId: "100015", firstName: "Isabella", lastName: "Walker", grade: "5" },
-    { studentId: "100016", firstName: "Alexander", lastName: "Hall", grade: "6" },
-    { studentId: "100017", firstName: "Harper", lastName: "Young", grade: "6" },
-    { studentId: "100018", firstName: "Michael", lastName: "Allen", grade: "7" },
-    { studentId: "100019", firstName: "Evelyn", lastName: "Scott", grade: "7" },
-    { studentId: "100020", firstName: "Daniel", lastName: "Torres", grade: "8" },
-    { studentId: "100021", firstName: "Abigail", lastName: "Reed", grade: "8" },
-  ];
-
-  const NIL_UUID = "00000000-0000-0000-0000-000000000000";
 
   // Per-room teacher names live in Supabase (room_teachers) like everything
   // else, so they show up live on every device -- saves are debounced (see
@@ -123,9 +98,6 @@
     suggestions: document.getElementById("suggestions"),
     rosterStatus: document.getElementById("rosterStatus"),
     rosters: document.getElementById("rosters"),
-    csvFile: document.getElementById("csvFile"),
-    uploadRosterBtn: document.getElementById("uploadRosterBtn"),
-    sampleRosterBtn: document.getElementById("sampleRosterBtn"),
     exportBtn: document.getElementById("exportBtn"),
     resetBtn: document.getElementById("resetBtn"),
     walkinForm: document.getElementById("walkinForm"),
@@ -321,20 +293,17 @@
     checkins = (data || []).map(mapCheckinRow);
   }
 
-  // `opts.preserveIds` is used for Aeries syncs: Aeries hands back a durable
-  // per-student district ID, and upserting on it (rather than wiping the
-  // table and reinserting) keeps the same internal row -- and therefore the
-  // same FK -- for a student who's already checked in today, so a roster
-  // refresh mid-Monday can't strand that check-in or let it double up. CSV
-  // uploads and the sample roster don't have that stability guarantee (a
-  // CSV's Student ID column, if any, isn't necessarily durable), so they
-  // keep doing a full wipe-and-reinsert instead.
+  // Aeries hands back a durable per-student district ID, and upserting on
+  // it (rather than wiping the table and reinserting) keeps the same
+  // internal row -- and therefore the same FK -- for a student who's
+  // already checked in today, so a roster refresh mid-Monday can't strand
+  // that check-in or let it double up.
   //
-  // Returns true/false so callers know whether to show their own "loaded
-  // N students" success toast -- every failure path below already shows
-  // its own error toast, and showToast() replaces whatever's currently
-  // displayed, so a caller that always shows a success toast regardless of
-  // the outcome would instantly bury that error under a false "success".
+  // Returns true/false so callers know whether to show their own success
+  // toast -- every failure path below already shows its own error toast,
+  // and showToast() replaces whatever's currently displayed, so a caller
+  // that always shows a success toast regardless of the outcome would
+  // instantly bury that error under a false "success".
   async function setRoster(students, opts) {
     opts = opts || {};
     if (!db) {
@@ -348,85 +317,54 @@
         first_name: String(s.firstName || "").trim(),
         grade: normalizeGrade(s.grade),
       }))
-      .filter((s) => s.last_name || s.first_name);
+      .filter((s) => (s.last_name || s.first_name) && s.student_id);
+    // A synced roster with no IDed rows at all (e.g. a proxy hiccup
+    // returning an empty/malformed roster) would otherwise fall through to
+    // the "remove withdrawn students" step below with an empty keepIds
+    // set, deleting every single student. Refuse instead.
+    if (rows.length === 0) {
+      showToast("Aeries sync returned no usable students -- roster left unchanged.");
+      return false;
+    }
 
-    if (opts.preserveIds) {
-      const rowsWithId = rows.filter((r) => r.student_id);
-      // A synced roster with no IDed rows at all (e.g. a proxy hiccup
-      // returning an empty/malformed roster) would otherwise fall through
-      // to the "remove withdrawn students" step below with an empty
-      // keepIds set, deleting every single student. Refuse instead.
-      if (rowsWithId.length === 0) {
-        showToast("Aeries sync returned no usable students -- roster left unchanged.");
-        return false;
-      }
-      const { error: upsertErr } = await db
-        .from("students")
-        .upsert(rowsWithId, { onConflict: "student_id" });
-      if (upsertErr) {
-        console.error(upsertErr);
-        showToast("Couldn't save the synced roster: " + upsertErr.message);
-        return false;
-      }
+    const { error: upsertErr } = await db.from("students").upsert(rows, { onConflict: "student_id" });
+    if (upsertErr) {
+      console.error(upsertErr);
+      showToast("Couldn't save the synced roster: " + upsertErr.message);
+      return false;
+    }
 
-      // Removing anyone no longer in the freshly synced roster (e.g.
-      // withdrawn) only ever happens when opts.pruneRemoved is explicitly
-      // set -- that's the manual "Sync from Aeries" button, after
-      // confirming with whoever clicked it (below). A silent/automatic
-      // sync (scheduled auto-refresh, or the one on initial page load)
-      // never sets it, so it can only ever add or update students -- it
-      // can't be the thing that empties the roster overnight with nobody
-      // having clicked anything.
-      if (opts.pruneRemoved) {
-        const { data: allRows, error: selErr } = await db.from("students").select("id, student_id");
-        if (selErr) {
-          console.error(selErr);
-          showToast("Synced, but couldn't check for withdrawn students: " + selErr.message);
-        } else {
-          const keepIds = new Set(rowsWithId.map((r) => r.student_id));
-          const idsToRemove = (allRows || [])
-            .filter((r) => !r.student_id || !keepIds.has(r.student_id))
-            .map((r) => r.id);
-          if (idsToRemove.length > 0) {
-            const confirmed = confirm(
-              "This sync found " + idsToRemove.length + " student(s) no longer in Aeries's roster.\n\n" +
-              "Remove them from Monday Attendance too? Cancel keeps them and still saves everyone else."
-            );
-            if (confirmed) {
-              const { error: delErr } = await db.from("students").delete().in("id", idsToRemove);
-              if (delErr) {
-                console.error(delErr);
-                showToast("Synced, but couldn't remove withdrawn students: " + delErr.message);
-              }
-            } else {
-              showToast("Kept " + idsToRemove.length + " student(s) not in the new Aeries roster.");
+    // Removing anyone no longer in the freshly synced roster (e.g.
+    // withdrawn) only ever happens when opts.pruneRemoved is explicitly
+    // set -- that's the manual "Sync from Aeries" button, after confirming
+    // with whoever clicked it (below). A silent/automatic sync (scheduled
+    // auto-refresh, or the one on initial page load) never sets it, so it
+    // can only ever add or update students -- it can't be the thing that
+    // empties the roster overnight with nobody having clicked anything.
+    if (opts.pruneRemoved) {
+      const { data: allRows, error: selErr } = await db.from("students").select("id, student_id");
+      if (selErr) {
+        console.error(selErr);
+        showToast("Synced, but couldn't check for withdrawn students: " + selErr.message);
+      } else {
+        const keepIds = new Set(rows.map((r) => r.student_id));
+        const idsToRemove = (allRows || [])
+          .filter((r) => !r.student_id || !keepIds.has(r.student_id))
+          .map((r) => r.id);
+        if (idsToRemove.length > 0) {
+          const confirmed = confirm(
+            "This sync found " + idsToRemove.length + " student(s) no longer in Aeries's roster.\n\n" +
+            "Remove them from Monday Attendance too? Cancel keeps them and still saves everyone else."
+          );
+          if (confirmed) {
+            const { error: delErr } = await db.from("students").delete().in("id", idsToRemove);
+            if (delErr) {
+              console.error(delErr);
+              showToast("Synced, but couldn't remove withdrawn students: " + delErr.message);
             }
+          } else {
+            showToast("Kept " + idsToRemove.length + " student(s) not in the new Aeries roster.");
           }
-        }
-      }
-    } else {
-      // A full CSV upload / sample-roster load replaces the entire roster
-      // -- confirm first when there's an existing one to lose, since
-      // otherwise this is a silent, irreversible wipe with no undo.
-      if (opts.confirmReplace && roster.length > 0) {
-        const confirmed = confirm(
-          "This replaces the current roster (" + roster.length + " students) with " +
-          rows.length + " new one(s). This can't be undone. Continue?"
-        );
-        if (!confirmed) return false;
-      }
-      const { error: delErr } = await db.from("students").delete().neq("id", NIL_UUID);
-      if (delErr) {
-        console.error(delErr);
-        showToast("Couldn't clear the old roster: " + delErr.message);
-        return false;
-      }
-      if (rows.length > 0) {
-        const { error: insErr } = await db.from("students").insert(rows);
-        if (insErr) {
-          console.error(insErr);
-          showToast("Couldn't save the new roster: " + insErr.message);
-          return false;
         }
       }
     }
@@ -434,55 +372,6 @@
     await loadRoster();
     renderAll();
     return true;
-  }
-
-  // Aeries roster exports use varying header names across school configs;
-  // these aliases (matched after lowercasing and stripping everything but
-  // letters/digits, so "Last Name", "last_name", and "LastName" all match)
-  // cover the common ones. Student ID is the only optional column -- a
-  // roster without a district ID column still uploads fine, just with a
-  // blank Student ID on export.
-  const STUDENT_ID_HEADER_ALIASES = ["studentid", "id", "permanentid", "permid", "studentnumber", "sid"];
-  const LAST_NAME_HEADER_ALIASES = ["lastname", "last", "surname"];
-  const FIRST_NAME_HEADER_ALIASES = ["firstname", "first", "givenname"];
-  const GRADE_HEADER_ALIASES = ["grade", "gradelevel"];
-
-  function normalizeHeader(h) {
-    return String(h).trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-  }
-
-  function findColumn(headers, aliases) {
-    for (const alias of aliases) {
-      const idx = headers.indexOf(alias);
-      if (idx !== -1) return idx;
-    }
-    return -1;
-  }
-
-  function parseCsv(text) {
-    const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
-    if (lines.length === 0) return [];
-    const headers = lines[0].split(",").map(normalizeHeader);
-
-    const idIdx = findColumn(headers, STUDENT_ID_HEADER_ALIASES);
-    const lastIdx = findColumn(headers, LAST_NAME_HEADER_ALIASES);
-    const firstIdx = findColumn(headers, FIRST_NAME_HEADER_ALIASES);
-    const gradeIdx = findColumn(headers, GRADE_HEADER_ALIASES);
-
-    // Last Name, First Name, and Grade all need to be identifiable columns;
-    // Student ID is the only one that's allowed to be missing.
-    if (lastIdx === -1 || firstIdx === -1 || gradeIdx === -1) return [];
-
-    const students = [];
-    for (let i = 1; i < lines.length; i++) {
-      const cols = lines[i].split(",");
-      const lastName = (cols[lastIdx] || "").trim();
-      const firstName = (cols[firstIdx] || "").trim();
-      const grade = (cols[gradeIdx] || "").trim();
-      const studentId = idIdx === -1 ? "" : (cols[idIdx] || "").trim();
-      if (lastName || firstName) students.push({ studentId, firstName, lastName, grade });
-    }
-    return students;
   }
 
   // ---------------------------------------------------------------------
@@ -537,7 +426,7 @@
       // it with whoever clicked. A silent/automatic sync (scheduled
       // auto-refresh, or the initial one on page load) only ever adds or
       // updates students, so it can never silently empty the roster.
-      const saved = await setRoster(students, { preserveIds: true, pruneRemoved: !opts.silent });
+      const saved = await setRoster(students, { pruneRemoved: !opts.silent });
       if (saved) {
         aeriesConfig.lastSyncedAt = new Date().toISOString();
         saveAeriesConfig();
@@ -1065,36 +954,6 @@
     scheduleAeriesAutoRefresh();
     showToast("Aeries sync settings saved.");
     if (aeriesConfig.workerUrl) syncFromAeries();
-  });
-
-  el.uploadRosterBtn.addEventListener("click", () => el.csvFile.click());
-
-  el.csvFile.addEventListener("change", () => {
-    const file = el.csvFile.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const students = parseCsv(String(reader.result));
-      if (students.length === 0) {
-        showToast("That CSV didn't have any usable rows (expected Last Name, First Name, Grade columns — Student ID optional).");
-        return;
-      }
-      // setRoster already shows its own error toast on failure -- only
-      // show this one when the roster was actually saved. confirmReplace
-      // makes it ask before wiping an existing roster, since this button
-      // otherwise replaces it instantly with no undo.
-      if (await setRoster(students, { confirmReplace: true })) {
-        showToast("Loaded " + students.length + " students from " + file.name);
-      }
-    };
-    reader.readAsText(file);
-    el.csvFile.value = "";
-  });
-
-  el.sampleRosterBtn.addEventListener("click", async () => {
-    if (await setRoster(SAMPLE_ROSTER, { confirmReplace: true })) {
-      showToast("Loaded the sample demo roster (" + SAMPLE_ROSTER.length + " students).");
-    }
   });
 
   el.exportBtn.addEventListener("click", () => {

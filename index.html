@@ -9,11 +9,11 @@
   from a previous Monday picks up updates on its own -- see checkForUpdate()
   in app.js. Nothing else needs to change when you bump it.
 -->
-<meta name="app-version" content="4">
+<meta name="app-version" content="5">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>Monday Attendance</title>
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 <div id="dbBanner" class="db-banner" hidden></div>
@@ -26,14 +26,10 @@
   <div class="header-actions">
     <button id="syncAeriesBtn" class="btn btn-secondary" type="button">Sync from Aeries</button>
     <button id="aeriesSettingsBtn" class="btn btn-secondary" type="button" title="Aeries sync settings">⚙️ Aeries Settings</button>
-    <button id="uploadRosterBtn" class="btn btn-secondary" type="button">Upload Roster (CSV)</button>
-    <button id="sampleRosterBtn" class="btn btn-secondary" type="button">Load Sample Roster</button>
     <button id="exportBtn" class="btn btn-secondary" type="button">Export Today's Attendance (CSV)</button>
     <button id="resetBtn" class="btn btn-danger" type="button">Reset Today</button>
   </div>
 </header>
-
-<input type="file" id="csvFile" accept=".csv" hidden>
 
 <dialog id="aeriesSettingsDialog" class="aeries-dialog">
   <form method="dialog" id="aeriesSettingsForm">
@@ -109,7 +105,7 @@
 <div id="toast" class="toast" hidden></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="config.js?v=4"></script>
-<script src="app.js?v=4"></script>
+<script src="config.js?v=5"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>
