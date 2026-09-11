@@ -105,6 +105,11 @@ Don't have a real roster handy? Click **Load Sample Roster** to try the app
 with 21 made-up demo students (with fake Student IDs) spread across every
 grade band.
 
+Both of these ask for confirmation before replacing an existing roster (so
+an accidental click can't silently wipe real students) — the only things
+that never ask are additive: check-ins, teacher names, and an Aeries sync
+finding new/updated students (see below).
+
 ## Live sync from Aeries (optional)
 
 If your school uses Aeries as its student information system, the app can
@@ -137,6 +142,17 @@ Re-syncing keeps an already-checked-in student matched to their check-in
 (by upserting on their durable Aeries-issued Student ID instead of
 replacing the whole roster table), so refreshing the roster mid-Monday
 can't strand or double up someone who's already been checked in.
+
+**Auto-refresh only ever adds or updates students — it never removes
+anyone, even a student Aeries no longer lists as enrolled.** Only a
+manual click of **Sync from Aeries** can remove withdrawn students, and
+even then only after confirming with you exactly how many it found and
+letting you cancel that part while still keeping everyone else's
+add/update. This is deliberate: auto-refresh runs on a timer with nobody
+watching, so it must never be the thing that can silently empty the
+roster overnight — a bad or incomplete response from the proxy (a
+network hiccup, a misconfigured school code, anything) can only ever
+leave the roster as-is or grow it, never shrink it.
 
 ## Other tools in the header
 
