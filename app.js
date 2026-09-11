@@ -369,26 +369,52 @@
         return false;
       }
 
-      // Anyone no longer in the freshly synced roster (e.g. withdrawn)
-      // drops off entirely, same as a full CSV re-upload would do.
-      const { data: allRows, error: selErr } = await db.from("students").select("id, student_id");
-      if (selErr) {
-        console.error(selErr);
-        showToast("Synced, but couldn't check for withdrawn students: " + selErr.message);
-      } else {
-        const keepIds = new Set(rowsWithId.map((r) => r.student_id));
-        const idsToRemove = (allRows || [])
-          .filter((r) => !r.student_id || !keepIds.has(r.student_id))
-          .map((r) => r.id);
-        if (idsToRemove.length > 0) {
-          const { error: delErr } = await db.from("students").delete().in("id", idsToRemove);
-          if (delErr) {
-            console.error(delErr);
-            showToast("Synced, but couldn't remove withdrawn students: " + delErr.message);
+      // Removing anyone no longer in the freshly synced roster (e.g.
+      // withdrawn) only ever happens when opts.pruneRemoved is explicitly
+      // set -- that's the manual "Sync from Aeries" button, after
+      // confirming with whoever clicked it (below). A silent/automatic
+      // sync (scheduled auto-refresh, or the one on initial page load)
+      // never sets it, so it can only ever add or update students -- it
+      // can't be the thing that empties the roster overnight with nobody
+      // having clicked anything.
+      if (opts.pruneRemoved) {
+        const { data: allRows, error: selErr } = await db.from("students").select("id, student_id");
+        if (selErr) {
+          console.error(selErr);
+          showToast("Synced, but couldn't check for withdrawn students: " + selErr.message);
+        } else {
+          const keepIds = new Set(rowsWithId.map((r) => r.student_id));
+          const idsToRemove = (allRows || [])
+            .filter((r) => !r.student_id || !keepIds.has(r.student_id))
+            .map((r) => r.id);
+          if (idsToRemove.length > 0) {
+            const confirmed = confirm(
+              "This sync found " + idsToRemove.length + " student(s) no longer in Aeries's roster.\n\n" +
+              "Remove them from Monday Attendance too? Cancel keeps them and still saves everyone else."
+            );
+            if (confirmed) {
+              const { error: delErr } = await db.from("students").delete().in("id", idsToRemove);
+              if (delErr) {
+                console.error(delErr);
+                showToast("Synced, but couldn't remove withdrawn students: " + delErr.message);
+              }
+            } else {
+              showToast("Kept " + idsToRemove.length + " student(s) not in the new Aeries roster.");
+            }
           }
         }
       }
     } else {
+      // A full CSV upload / sample-roster load replaces the entire roster
+      // -- confirm first when there's an existing one to lose, since
+      // otherwise this is a silent, irreversible wipe with no undo.
+      if (opts.confirmReplace && roster.length > 0) {
+        const confirmed = confirm(
+          "This replaces the current roster (" + roster.length + " students) with " +
+          rows.length + " new one(s). This can't be undone. Continue?"
+        );
+        if (!confirmed) return false;
+      }
       const { error: delErr } = await db.from("students").delete().neq("id", NIL_UUID);
       if (delErr) {
         console.error(delErr);
@@ -506,7 +532,12 @@
         lastName: s.lastName || "",
         grade: s.grade,
       }));
-      const saved = await setRoster(students, { preserveIds: true });
+      // Only a manual click (opts.silent unset) is allowed to remove
+      // withdrawn students -- and even then only after setRoster confirms
+      // it with whoever clicked. A silent/automatic sync (scheduled
+      // auto-refresh, or the initial one on page load) only ever adds or
+      // updates students, so it can never silently empty the roster.
+      const saved = await setRoster(students, { preserveIds: true, pruneRemoved: !opts.silent });
       if (saved) {
         aeriesConfig.lastSyncedAt = new Date().toISOString();
         saveAeriesConfig();
@@ -1049,8 +1080,10 @@
         return;
       }
       // setRoster already shows its own error toast on failure -- only
-      // show this one when the roster was actually saved.
-      if (await setRoster(students)) {
+      // show this one when the roster was actually saved. confirmReplace
+      // makes it ask before wiping an existing roster, since this button
+      // otherwise replaces it instantly with no undo.
+      if (await setRoster(students, { confirmReplace: true })) {
         showToast("Loaded " + students.length + " students from " + file.name);
       }
     };
@@ -1059,7 +1092,7 @@
   });
 
   el.sampleRosterBtn.addEventListener("click", async () => {
-    if (await setRoster(SAMPLE_ROSTER)) {
+    if (await setRoster(SAMPLE_ROSTER, { confirmReplace: true })) {
       showToast("Loaded the sample demo roster (" + SAMPLE_ROSTER.length + " students).");
     }
   });
